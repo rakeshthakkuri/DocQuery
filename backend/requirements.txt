@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+PyMuPDF
+sentence-transformers
+langchain
+google-generativeai
+numpy
+python-multipart
+langchain-community
+qdrant-client
