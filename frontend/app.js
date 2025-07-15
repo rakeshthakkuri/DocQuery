@@ -1,5 +1,5 @@
 // --- Configuration ---
-const backendUrl = "https://docquery-rocs-backend.onrender.com"; 
+const backendUrl = "http://127.0.0.1:8000"; 
 const loginPage = "index.html"; 
 const mainAppPage = "app.html";
 
