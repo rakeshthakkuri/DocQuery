@@ -8,3 +8,11 @@ numpy
 python-multipart
 langchain-community
 qdrant-client
+python-dotenv
+psycopg2-binary 
+passlib 
+python-jose[cryptography]
+httpx
+sqlalchemy
+authlib
+itsdangerous

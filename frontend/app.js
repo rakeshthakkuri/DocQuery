@@ -1,231 +1,322 @@
-// app.js - Enhanced with modern UI interactions
-
 const backendUrl = "http://127.0.0.1:8000";
 
-// Helper function to update status messages
-function updateStatus(elementId, message, type = '') {
-    const element = document.getElementById(elementId);
-    if (element) {
-        element.textContent = message;
-        element.className = 'status-message'; // Reset classes
-        if (type === 'upload') {
-            element.classList.add('upload-status');
-        } else if (type === 'question') {
-            element.classList.add('question-status');
-        }
-        element.classList.add('visible'); // Make sure it's visible
-        element.classList.add('animate-fade-in'); // Add animation
+// --- Utility Functions ---
+
+function getJwtToken() {
+    return localStorage.getItem('jwt_token');
+}
+
+function setJwtToken(token) {
+    localStorage.setItem('jwt_token', token);
+}
+
+function removeJwtToken() {
+    localStorage.removeItem('jwt_token');
+    localStorage.removeItem('user_info'); // Clear any stored user info
+}
+
+function decodeJwtToken(token) {
+    try {
+        const base64Url = token.split('.')[1];
+        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+        const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+            return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+        }).join(''));
+        return JSON.parse(jsonPayload);
+    } catch (e) {
+        console.error("Error decoding JWT:", e);
+        return null;
     }
 }
 
-// Helper function to disable/enable buttons and show/hide spinner
-function setButtonLoading(buttonId, isLoading, defaultText, iconSvg) {
-    const button = document.getElementById(buttonId);
-    if (button) {
-        button.disabled = isLoading;
-        if (isLoading) {
-            button.innerHTML = '<span class="spinner"></span>' + (buttonId === 'uploadButton' ? 'Uploading...' : 'Processing...');
+function displayUserInfo() {
+    const userInfoElement = document.getElementById('userInfo'); // Assuming this is your container
+    const userNameElement = document.getElementById('userName');
+    const userPictureElement = document.getElementById('userPicture'); // If you have one
+    const logoutBtn = document.getElementById('logoutButton');
+
+    const userInfo = JSON.parse(localStorage.getItem('user_info'));
+
+    if (userInfo && userInfo.name) {
+        userNameElement.textContent = `Welcome, ${userInfo.name}!`;
+        if (logoutBtn) logoutBtn.style.display = 'block'; // Ensure logout button is visible
+        // You can add logic here to display userPictureElement if userInfo.picture exists
+    } else {
+        userNameElement.textContent = "Guest";
+        if (logoutBtn) logoutBtn.style.display = 'none'; // Hide logout button if no user info
+    }
+}
+
+
+// --- Authentication Logic ---
+
+function handleAuthCallback() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+
+    if (token) {
+        setJwtToken(token);
+        const decodedToken = decodeJwtToken(token);
+        if (decodedToken) {
+            localStorage.setItem('user_info', JSON.stringify({
+                id: decodedToken.sub,
+                name: decodedToken.name,
+                email: decodedToken.email,
+                // picture: decodedToken.picture
+            }));
+        }
+
+        // Clear the token from the URL for security and cleanliness
+        window.history.replaceState({}, document.title, window.location.pathname);
+        console.log("JWT Token received and stored.");
+        displayUserInfo(); // Update UI immediately after token is processed
+    } else {
+        // If no token in URL and not already logged in, redirect to login page
+        if (!getJwtToken()) {
+            console.log("No JWT Token found, redirecting to login.");
+            // Only redirect if we are NOT already on introduction.html to prevent loops
+            if (window.location.pathname.endsWith("/index.html") || window.location.pathname === "/") {
+                window.location.href = "introduction.html";
+            }
         } else {
-            button.innerHTML = iconSvg + ' <span>' + defaultText + '</span>';
+            // Token exists in local storage, display user info
+            displayUserInfo();
         }
     }
 }
 
-// Enhanced file upload with drag and drop
-function setupFileUpload() {
-    const fileInput = document.getElementById("fileInput");
-    const uploadArea = document.querySelector(".upload-area");
-    
-    // Drag and drop functionality
-    uploadArea.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        uploadArea.classList.add('drag-over');
-    });
-    
-    uploadArea.addEventListener('dragleave', (e) => {
-        e.preventDefault();
-        uploadArea.classList.remove('drag-over');
-    });
-    
-    uploadArea.addEventListener('drop', (e) => {
-        e.preventDefault();
-        uploadArea.classList.remove('drag-over');
+function logout() {
+    removeJwtToken();
+    window.location.href = "introduction.html"; // Redirect to login page
+}
+
+// --- Event Listeners ---
+document.addEventListener('DOMContentLoaded', () => {
+    handleAuthCallback(); // Ensure this runs early
+
+    const uploadButton = document.getElementById('uploadButton');
+    const askButton = document.getElementById('askButton');
+    const fileInput = document.getElementById('fileInput');
+    const questionInput = document.getElementById('questionInput');
+    const uploadStatus = document.getElementById('uploadStatus');
+    const questionStatus = document.getElementById('questionStatus');
+    const answerText = document.getElementById('answerText');
+    const logoutBtn = document.getElementById('logoutButton');
+    const uploadZone = document.getElementById('uploadZone'); // Use ID for consistency
+    const browseBtn = document.getElementById('browseBtn'); // New: for the browse button inside the zone
+
+    // New elements for file display inside the box
+    const initialUploadState = uploadZone ? uploadZone.querySelector('.initial-state') : null;
+    const selectedFileDisplay = document.getElementById('fileDisplayNameInsideBox');
+    const fileNameText = selectedFileDisplay ? selectedFileDisplay.querySelector('.file-name-text') : null;
+    const clearFileButton = document.getElementById('clearFileButton'); // New: for clearing selected file
+
+
+    // --- 1. Fix for "double asking" and general upload flow ---
+    // Ensure upload button prevents default form submission
+    if (uploadButton) {
+        uploadButton.addEventListener('click', (event) => {
+            event.preventDefault(); // Prevent default form submission if button is type="submit"
+            uploadReport();
+        });
+    }
+
+    if (askButton) {
+        askButton.addEventListener('click', askQuestion);
+    }
+
+    if (fileInput && uploadZone) {
+        // Handle click on browse button inside the zone
+        if (browseBtn) {
+            browseBtn.addEventListener('click', (e) => {
+                e.preventDefault(); // Prevent accidental form submission
+                fileInput.click();
+            });
+        }
         
-        const files = e.dataTransfer.files;
-        if (files.length > 0) {
-            fileInput.files = files;
-            updateFileDisplay(files[0]);
-        }
-    });
-    
-    // File input change
-    fileInput.addEventListener('change', (e) => {
-        if (e.target.files.length > 0) {
-            updateFileDisplay(e.target.files[0]);
-        }
-    });
-}
+        // --- 2. Visual feedback for drag-and-drop box ---
+        const updateFileDisplay = (file) => {
+            if (file && fileNameText && initialUploadState && selectedFileDisplay) {
+                fileNameText.textContent = file.name;
+                initialUploadState.style.display = 'none'; // Hide initial instructions
+                selectedFileDisplay.style.display = 'flex'; // Show selected file display (using flex for layout)
+                uploadStatus.textContent = `Selected: ${file.name}`; // Also update status below for clarity
+                uploadStatus.style.color = '#6EE7B7';
+            } else if (fileNameText && initialUploadState && selectedFileDisplay) {
+                // No file selected, revert to initial state
+                fileNameText.textContent = "";
+                initialUploadState.style.display = 'flex'; // Show initial instructions
+                selectedFileDisplay.style.display = 'none'; // Hide selected file display
+                uploadStatus.textContent = "No file selected."; // Clear status below
+                uploadStatus.style.color = 'inherit';
+            }
+        };
 
-function updateFileDisplay(file) {
-    const uploadArea = document.querySelector(".upload-area");
-    const uploadText = uploadArea.querySelector(".upload-text");
-    
-    if (file) {
-        uploadText.innerHTML = `
-            <p class="upload-primary">📄 ${file.name}</p>
-            <p class="upload-secondary">Ready to upload (${(file.size / 1024 / 1024).toFixed(2)} MB)</p>
-        `;
+        // Handle file selection from input
+        fileInput.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            updateFileDisplay(file);
+        });
+
+        // Handle drag and drop
+        uploadZone.addEventListener('dragover', (event) => {
+            event.preventDefault();
+            uploadZone.classList.add('drag-over');
+        });
+        uploadZone.addEventListener('dragleave', () => {
+            uploadZone.classList.remove('drag-over');
+        });
+        uploadZone.addEventListener('drop', (event) => {
+            event.preventDefault();
+            uploadZone.classList.remove('drag-over');
+            const files = event.dataTransfer.files;
+            if (files.length > 0) {
+                fileInput.files = files; // Assign dropped files to file input
+                updateFileDisplay(files[0]);
+            }
+        });
+
+        // Handle clearing the selected file
+        if (clearFileButton) {
+            clearFileButton.addEventListener('click', (e) => {
+                e.preventDefault();
+                fileInput.value = ''; // Clear the file input
+                updateFileDisplay(null); // Reset display
+                uploadStatus.textContent = "File cleared. Please select another.";
+                uploadStatus.style.color = '#F59E0B'; // Orange
+            });
+        }
     }
-}
+
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', logout);
+    }
+});
+
+
+// --- API Calls ---
 
 async function uploadReport() {
-    const fileInput = document.getElementById("fileInput");
-    const answerCard = document.getElementById("answerCard");
-    const answerText = document.getElementById("answerText");
-    const questionStatus = document.getElementById("questionStatus");
-    const uploadStatus = document.getElementById("uploadStatus");
-
-    // Define the SVG for the upload button
-    const uploadIconSvg = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-        <polyline points="17 8 12 3 7 8"/>
-        <line x1="12" x2="12" y1="3" y2="15"/>
-    </svg>`;
-
-    // Hide answer card and clear previous status messages on new upload attempt
-    answerCard.style.display = 'none';
-    answerCard.classList.remove('visible', 'animate-fade-in');
-    answerText.textContent = '';
-    questionStatus.textContent = '';
-    questionStatus.classList.remove('visible', 'animate-fade-in', 'question-status');
-    uploadStatus.classList.remove('visible', 'animate-fade-in', 'upload-status');
-
-    setButtonLoading('uploadButton', true, 'Upload Document', uploadIconSvg);
-    updateStatus('uploadStatus', 'Uploading and processing your document...', 'upload');
-
-    if (!fileInput.files.length) {
-        updateStatus('uploadStatus', '❌ Please select a PDF file first.', 'upload');
-        setButtonLoading('uploadButton', false, 'Upload Document', uploadIconSvg);
-        return;
-    }
-
+    const fileInput = document.getElementById('fileInput');
+    const uploadStatus = document.getElementById('uploadStatus');
     const file = fileInput.files[0];
-    if (file.type !== 'application/pdf') {
-        updateStatus('uploadStatus', '❌ Please upload a PDF file only.', 'upload');
-        setButtonLoading('uploadButton', false, 'Upload Document', uploadIconSvg);
+
+    if (!file) {
+        uploadStatus.textContent = "🚫 Please select a PDF file first.";
+        uploadStatus.style.color = '#EF4444'; // Red color
         return;
     }
+
+    if (file.size > 10 * 1024 * 1024) { // 10 MB limit
+        uploadStatus.textContent = "🚫 File size exceeds 10MB limit.";
+        uploadStatus.style.color = '#EF4444';
+        return;
+    }
+
+    const token = getJwtToken();
+    if (!token) {
+        uploadStatus.textContent = "🚫 Not authenticated. Please log in.";
+        uploadStatus.style.color = '#EF4444';
+        setTimeout(() => window.location.href = "introduction.html", 2000);
+        return;
+    }
+
+    uploadStatus.textContent = "Uploading and processing... ⏳";
+    uploadStatus.style.color = '#F59E0B'; // Orange color
 
     const formData = new FormData();
     formData.append("file", file);
 
     try {
         const response = await fetch(`${backendUrl}/upload`, {
-            method: "POST",
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`
+            },
             body: formData,
         });
 
-        const result = await response.json();
+        const data = await response.json();
+
         if (response.ok) {
-            updateStatus('uploadStatus', result.detail || "✅ Document uploaded successfully! You can now ask questions.", 'upload');
+            uploadStatus.textContent = data.detail;
+            uploadStatus.style.color = '#6EE7B7'; // Green color
+            // Optional: Clear file input and reset display after successful upload
+            document.getElementById('fileInput').value = '';
+            const uploadZone = document.getElementById('uploadZone');
+            const initialUploadState = uploadZone ? uploadZone.querySelector('.initial-state') : null;
+            const selectedFileDisplay = document.getElementById('fileDisplayNameInsideBox');
+            if (initialUploadState && selectedFileDisplay) {
+                initialUploadState.style.display = 'flex';
+                selectedFileDisplay.style.display = 'none';
+            }
         } else {
-            updateStatus('uploadStatus', result.detail || "❌ Upload failed. Please check the backend server.", 'upload');
-            console.error("Upload error response:", result);
+            uploadStatus.textContent = `❌ Upload failed: ${data.detail || 'Unknown error'}`;
+            uploadStatus.style.color = '#EF4444';
         }
-    } catch (err) {
-        updateStatus('uploadStatus', "❌ Upload failed. Could not connect to the backend server.", 'upload');
-        console.error("Upload fetch error:", err);
-    } finally {
-        setButtonLoading('uploadButton', false, 'Upload Document', uploadIconSvg);
+    } catch (error) {
+        console.error('Error during upload:', error);
+        uploadStatus.textContent = `❌ Network error: ${error.message}`;
+        uploadStatus.style.color = '#EF4444';
     }
 }
 
 async function askQuestion() {
-    const questionInput = document.getElementById("questionInput");
-    const answerCard = document.getElementById("answerCard");
-    const answerText = document.getElementById("answerText");
-    const questionStatus = document.getElementById("questionStatus");
-
-    // Define the SVG for the ask button
-    const askIconSvg = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
-    </svg>`;
-
+    const questionInput = document.getElementById('questionInput');
+    const questionStatus = document.getElementById('questionStatus');
+    const answerText = document.getElementById('answerText');
     const question = questionInput.value.trim();
 
-    // Clear previous answer and status
-    answerText.textContent = '';
-    answerCard.classList.remove('visible', 'animate-fade-in');
-    answerCard.style.display = 'none';
-    questionStatus.classList.remove('visible', 'animate-fade-in', 'question-status');
-
-    setButtonLoading('askButton', true, 'Get Answer', askIconSvg);
-    updateStatus('questionStatus', 'Processing your question...', 'question');
-
     if (!question) {
-        updateStatus('questionStatus', '❌ Please enter a question.', 'question');
-        setButtonLoading('askButton', false, 'Get Answer', askIconSvg);
+        questionStatus.textContent = "🚫 Please type a question.";
+        questionStatus.style.color = '#EF4444';
         return;
     }
 
+    const token = getJwtToken();
+    if (!token) {
+        questionStatus.textContent = "🚫 Not authenticated. Please log in.";
+        questionStatus.style.color = '#EF4444';
+        setTimeout(() => window.location.href = "introduction.html", 2000);
+        return;
+    }
+
+    questionStatus.textContent = "Getting an answer... 🧠";
+    questionStatus.style.color = '#F59E0B';
+    answerText.textContent = ""; // Clear previous answer
+
     try {
         const response = await fetch(`${backendUrl}/ask`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ question }),
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ question: question }),
         });
 
-        const result = await response.json();
-        if (response.ok) {
-            answerText.textContent = result.answer || "No answer found for your question.";
-            answerCard.style.display = 'block';
-            // Small delay for smooth animation
-            setTimeout(() => {
-                answerCard.classList.add('visible', 'animate-fade-in');
-            }, 100);
-            updateStatus('questionStatus', '✅ Analysis completed successfully!', 'question');
-            
-            // Scroll to results
-            answerCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        } else {
-            updateStatus('questionStatus', result.detail || "❌ Failed to get answer. Please check the backend server.", 'question');
-            console.error("Ask question error response:", result);
-        }
+        const data = await response.json();
 
-    } catch (err) {
-        updateStatus('questionStatus', "❌ Failed to get answer. Could not connect to the backend server.", 'question');
-        console.error("Ask question fetch error:", err);
-    } finally {
-        setButtonLoading('askButton', false, 'Get Answer', askIconSvg);
+        if (response.ok) {
+            answerText.textContent = data.answer;
+            questionStatus.textContent = "Answer ready! 🎉";
+            questionStatus.style.color = '#6EE7B7';
+
+            // --- 3. Fix for answer not sliding down ---
+            // Assuming answerText is within a scrollable area, or you want to scroll the window
+            answerText.scrollIntoView({
+                behavior: 'smooth', // Smooth scrolling
+                block: 'center'    // Scroll to the middle of the viewport
+            });
+
+        } else {
+            answerText.textContent = `Error: ${data.detail || 'Unknown error'}`;
+            questionStatus.textContent = `❌ Failed to get answer: ${data.detail || 'Unknown error'}`;
+            questionStatus.style.color = '#EF4444';
+        }
+    } catch (error) {
+        console.error('Error during question:', error);
+        questionStatus.textContent = `❌ Network error: ${error.message}`;
+        questionStatus.style.color = '#EF4444';
     }
 }
-
-// Enhanced keyboard shortcuts
-function setupKeyboardShortcuts() {
-    document.addEventListener('keydown', (e) => {
-        // Enter key in question input
-        if (e.target.id === 'questionInput' && e.key === 'Enter') {
-            askQuestion();
-        }
-        
-        // Ctrl/Cmd + U for upload
-        if ((e.ctrlKey || e.metaKey) && e.key === 'u') {
-            e.preventDefault();
-            document.getElementById('fileInput').click();
-        }
-    });
-}
-
-// Attach event listeners after DOM is loaded
-document.addEventListener('DOMContentLoaded', () => {
-    setupFileUpload();
-    setupKeyboardShortcuts();
-    
-    document.getElementById('uploadButton').addEventListener('click', uploadReport);
-    document.getElementById('askButton').addEventListener('click', askQuestion);
-    
-    // Add click handler for upload area
-    document.querySelector('.upload-area').addEventListener('click', () => {
-        document.getElementById('fileInput').click();
-    });
-});

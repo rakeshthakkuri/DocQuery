@@ -1,8 +1,9 @@
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
+from starlette.middleware.sessions import SessionMiddleware
 from pydantic import BaseModel
-import fitz
+import fitz # PyMuPDF for PDF processing
 import uuid
 import os
 from dotenv import load_dotenv
@@ -15,44 +16,77 @@ from qdrant_client.models import (
     MatchValue,
     FilterSelector,
     PointStruct,
-    FieldCondition
+    FieldCondition,
+    CollectionStatus
 )
 from qdrant_client.http.exceptions import UnexpectedResponse
 from google.generativeai import configure, GenerativeModel
-import time
+import logging # For more structured logging
+
+# --- Authentication Imports ---
+# These imports are relative to the 'backend' directory.
+# They assume you run your FastAPI app from the 'backend' directory (e.g., `uvicorn main:app --reload`)
+from auth.routes import router as auth_router
+from auth.oauth import get_current_active_user
+from models import User # Assuming models.py defines a Pydantic User model (or SQLAlchemy model)
 
 # === Setup ===
-app = FastAPI()
+app = FastAPI(
+    title="Medical Report AI Assistant",
+    description="An AI assistant to answer questions based on uploaded medical reports, with user authentication.",
+    version="1.0.0"
+)
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# CORS Middleware for frontend communication
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"], # WARNING: In production, change "*" to your specific frontend URL(s)
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["*"], # Or specify ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
     allow_headers=["*"]
 )
+
+# Load environment variables
 load_dotenv()
+
+# Session Middleware (if you're using sessions, otherwise can be removed if only JWT is for auth)
+SESSION_SECRET_KEY = os.getenv("SECRET_KEY") 
+if not SESSION_SECRET_KEY:
+    logger.error("SECRET_KEY environment variable not set. SessionMiddleware requires it.")
+    raise RuntimeError("SECRET_KEY environment variable not set. SessionMiddleware requires it.")
+app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET_KEY)
+
+# Gemini API Key configuration
 gemini_api_key = os.getenv("GEMINI_API_KEY")
 if not gemini_api_key:
+    logger.error("GEMINI_API_KEY not set in environment.")
     raise RuntimeError("GEMINI_API_KEY not set in environment.")
 
 configure(api_key=gemini_api_key)
 model = GenerativeModel("gemini-1.5-flash")
+logger.info("Google Generative AI model 'gemini-1.5-flash' configured.")
 
 # Load models globally to avoid reloading on each request
-# This line loads the SentenceTransformer model on startup, which is memory-intensive
+# Using 'cpu' for broad compatibility. Consider 'cuda' if a GPU is available and configured.
 try:
-    embedder = SentenceTransformer("all-MiniLM-L12-v2", device='cpu')
+    embedder = SentenceTransformer("all-MiniLM-L12-v2", device='cpu') 
     reranker = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
     vector_dim = embedder.get_sentence_embedding_dimension() or 384
-    print(f"SentenceTransformer embedder and CrossEncoder reranker loaded. Vector dimension: {vector_dim}")
+    logger.info(f"SentenceTransformer embedder and CrossEncoder reranker loaded. Vector dimension: {vector_dim}")
 except Exception as e:
+    logger.critical(f"Failed to load sentence-transformer models: {e}", exc_info=True)
     raise RuntimeError(f"Failed to load sentence-transformer models: {e}")
 
 collection_name = "medical_docs"
 
-# --- Qdrant Client updated to use environment variables and increased timeout ---
+# --- Qdrant Client configuration ---
 qdrant_url = os.getenv("QDRANT_URL")
 if not qdrant_url:
+    logger.critical("QDRANT_URL environment variable not set. Please set it to your Qdrant instance URL (e.g., your Qdrant Cloud URL).")
     raise RuntimeError("QDRANT_URL environment variable not set. Please set it to your Qdrant instance URL (e.g., your Qdrant Cloud URL).")
 
 qdrant_api_key = os.getenv("QDRANT_API_KEY") # Optional, depending on your Qdrant setup
@@ -63,56 +97,60 @@ qdrant = QdrantClient(
     timeout=60.0 # Increased timeout for potentially long operations like initial indexing
 )
 
-# Print client version for debugging
+# Print Qdrant client version for debugging
 try:
     import qdrant_client
-    print(f"Qdrant client version: {qdrant_client.__version__}")
+    logger.info(f"Qdrant client version: {qdrant_client.__version__}")
 except AttributeError:
-    print("Qdrant client version: Unable to determine version")
-print(f"Connecting to Qdrant at: {qdrant_url}")
+    logger.warning("Qdrant client version: Unable to determine version")
+logger.info(f"Connecting to Qdrant at: {qdrant_url}")
 
+# --- Qdrant Collection Initialization ---
 try:
-    # Attempt to get the collection to see if it exists
-    qdrant.get_collection(collection_name=collection_name)
-    print(f"Qdrant collection '{collection_name}' already exists.")
+    # Attempt to get collection info to check existence and status
+    collection_info = qdrant.get_collection(collection_name=collection_name)
+    if collection_info.status == CollectionStatus.GREEN:
+        logger.info(f"Qdrant collection '{collection_name}' already exists and is healthy.")
+    else:
+        logger.warning(f"Qdrant collection '{collection_name}' exists but its status is {collection_info.status}.")
 except UnexpectedResponse as e:
-    # If it doesn't exist (e.g., 404 Not Found), recreate it
     if e.status_code == 404:
-        print(f"Qdrant collection '{collection_name}' not found, attempting to recreate.")
+        logger.info(f"Qdrant collection '{collection_name}' not found, attempting to recreate.")
         try:
             qdrant.recreate_collection(
                 collection_name=collection_name,
-                vectors_config=VectorParams(size=vector_dim, distance=Distance.COSINE)
+                vectors_config=VectorParams(size=vector_dim, distance=Distance.COSINE),
+                timeout=60.0 # Ensure recreation also has sufficient timeout
             )
-            print(f"Qdrant collection '{collection_name}' recreated successfully.")
+            logger.info(f"Qdrant collection '{collection_name}' recreated successfully.")
         except Exception as recreate_e:
+            logger.critical(f"Error recreating Qdrant collection: {recreate_e}", exc_info=True)
             raise RuntimeError(f"Error recreating Qdrant collection: {recreate_e}")
     else:
+        logger.critical(f"Error checking Qdrant collection (UnexpectedResponse): {e}", exc_info=True)
         raise RuntimeError(f"Error checking Qdrant collection (UnexpectedResponse): {e}")
 except Exception as e:
-    # Catch any other unexpected errors during collection check/recreation
+    logger.critical(f"Error checking/creating Qdrant collection: {e}", exc_info=True)
     raise RuntimeError(f"Error checking/creating Qdrant collection: {e}")
 
-# --- Create payload index for 'source' field ---
-# This ensures that filtering by 'source' is efficient and doesn't throw errors
-try:
-    # Ensure index creation is idempotent
-    # Qdrant's create_payload_index raises 409 Conflict if index already exists, which is fine.
-    # We can handle this by checking for the error message.
-    qdrant.create_payload_index(
-        collection_name=collection_name,
-        field_name="source",
-        field_schema="keyword"
-    )
-    print(f"Payload index for 'source' field created or already exists in collection '{collection_name}'.")
-except UnexpectedResponse as e:
-    # Check if the error is due to the index already existing (status code 409 Conflict)
-    if e.status_code == 409 or "already exists" in str(e):
-        print(f"Payload index for 'source' field already exists in collection '{collection_name}'.")
-    else:
-        print(f"Warning: Could not create payload index for 'source' field (UnexpectedResponse): {e}")
-except Exception as e:
-    print(f"Warning: Could not create payload index for 'source' field: {e}")
+# --- Create payload index for 'source' and 'user_id' fields ---
+# This ensures that filtering by these fields is efficient and doesn't throw errors
+for field_name in ["source", "user_id"]:
+    try:
+        qdrant.create_payload_index(
+            collection_name=collection_name,
+            field_name=field_name,
+            field_schema="keyword" # For string values like "report" and user IDs
+        )
+        logger.info(f"Payload index for '{field_name}' field created or already exists in collection '{collection_name}'.")
+    except UnexpectedResponse as e:
+        # Check if the error is due to the index already existing (status code 409 Conflict)
+        if e.status_code == 409 or "already exists" in str(e):
+            logger.info(f"Payload index for '{field_name}' field already exists in collection '{collection_name}'.")
+        else:
+            logger.warning(f"Could not create payload index for '{field_name}' field (UnexpectedResponse): {e}", exc_info=True)
+    except Exception as e:
+        logger.warning(f"Could not create payload index for '{field_name}' field: {e}", exc_info=True)
 
 
 def rerank_chunks(question: str, chunks: list[str], top_k=3) -> list[str]:
@@ -120,28 +158,59 @@ def rerank_chunks(question: str, chunks: list[str], top_k=3) -> list[str]:
     if not chunks:
         return []
 
-    # Ensure chunks are unique before reranking if needed, though not strictly necessary for this model
+    # Using set to ensure uniqueness if the retrieval method can return duplicates
     unique_chunks = list(set(chunks))
+    
+    if not unique_chunks:
+        return []
 
     pairs = [(question, chunk) for chunk in unique_chunks]
     
-    if not pairs: # Handle case where unique_chunks might be empty after set conversion
-        return []
-
-    scores = reranker.predict(pairs)
+    try:
+        scores = reranker.predict(pairs)
+    except Exception as e:
+        logger.error(f"Error during reranker prediction: {e}", exc_info=True)
+        # Fallback: return original chunks if reranking fails
+        return unique_chunks[:top_k] if len(unique_chunks) > top_k else unique_chunks
 
     # Sort chunks based on scores descending
     ranked = sorted(zip(unique_chunks, scores), key=lambda x: x[1], reverse=True)
     top_chunks = [chunk for chunk, _ in ranked[:top_k]]
 
-    print(f"Reranked {len(chunks)} chunks to top {len(top_chunks)}. Top scores: {[round(s, 3) for _, s in ranked[:top_k]]}")
+    logger.info(f"Reranked {len(chunks)} chunks to top {len(top_chunks)}. Top scores: {[round(s, 3) for _, s in ranked[:top_k]]}")
     return top_chunks
 
+# --- Include Authentication Router ---
+# This line mounts your auth router under the /auth prefix
+app.include_router(auth_router, prefix="/auth", tags=["Authentication"])
+
+# === Protected Routes ===
+
+# Root path for testing authentication
+@app.get("/", summary="Test authentication status", response_model=dict)
+async def root(current_user: User = Depends(get_current_active_user)):
+    """
+    A simple endpoint to confirm that the user is authenticated.
+    Returns a welcome message with the user's email.
+    """
+    logger.info(f"Authenticated user accessed root: {current_user.email}")
+    return {"message": f"Welcome, {current_user.email}! Authentication successful."}
+
+
 # === Upload Report Endpoint ===
-@app.post("/upload")
-async def upload_report(file: UploadFile = File(...)):
+@app.post("/upload", summary="Upload and index a PDF medical report", response_model=dict)
+async def upload_report(file: UploadFile = File(..., description="The PDF medical report to upload."),
+                        current_user: User = Depends(get_current_active_user)):
+    """
+    Uploads a PDF report, extracts its text, embeds chunks, and indexes them into Qdrant.
+    Old reports for the same user will be cleared before indexing new ones.
+    Requires authentication.
+    """
+    logger.info(f"User {current_user.email} attempting to upload report: {file.filename}")
+
     if not file.filename.lower().endswith(".pdf"):
-        return JSONResponse(status_code=400, content={"detail": "🚫 Only PDF files are allowed."})
+        logger.warning(f"Upload failed for {current_user.email}: Invalid file type '{file.filename}'")
+        raise HTTPException(status_code=400, detail="🚫 Only PDF files are allowed.")
 
     try:
         # Read file content
@@ -149,104 +218,130 @@ async def upload_report(file: UploadFile = File(...)):
         doc = fitz.open(stream=file_content, filetype="pdf")
         text = "\n".join(page.get_text() for page in doc)
         if not text.strip():
-            return JSONResponse(status_code=400, content={"detail": "🚫 PDF contains no readable text."})
+            logger.warning(f"Upload failed for {current_user.email} ({file.filename}): PDF contains no readable text.")
+            raise HTTPException(status_code=400, detail="🚫 PDF contains no readable text.")
     except Exception as e:
-        return JSONResponse(status_code=400, content={"detail": f"❌ Error reading PDF: {e}"})
+        logger.error(f"Error reading PDF for user {current_user.email} ({file.filename}): {e}", exc_info=True)
+        raise HTTPException(status_code=400, detail=f"❌ Error reading PDF: {e}")
 
-    # Simple chunking for demonstration (you might use a more advanced strategy)
+    # Simple chunking for demonstration (consider more advanced NLP-based chunking)
     chunks = [text[i:i+500] for i in range(0, len(text), 500)]
     if not chunks:
-        return JSONResponse(status_code=400, content={"detail": "🚫 No text chunks could be extracted from the PDF."})
+        logger.warning(f"Upload failed for {current_user.email} ({file.filename}): No text chunks extracted.")
+        raise HTTPException(status_code=400, detail="🚫 No text chunks could be extracted from the PDF.")
 
     try:
         vectors = embedder.encode(chunks).tolist()
     except Exception as e:
-        return JSONResponse(status_code=500, content={"detail": f"❌ Error encoding text chunks: {e}"})
+        logger.error(f"Error encoding text chunks for user {current_user.email} ({file.filename}): {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"❌ Error encoding text chunks: {e}")
 
-    # Clear old pdf data specific to 'report' source
+    # --- Clear old pdf data specific to 'report' source for this user ---
+    # This is crucial for user-specific data management.
     try:
         delete_result = qdrant.delete(
             collection_name=collection_name,
             points_selector=FilterSelector(
                 filter=Filter(
-                    must=[FieldCondition(key="source", match=MatchValue(value="report"))]
+                    must=[
+                        FieldCondition(key="source", match=MatchValue(value="report")),
+                        FieldCondition(key="user_id", match=MatchValue(value=str(current_user.id)))
+                    ]
                 )
             ),
             wait=True # Wait for the delete operation to complete
         )
         if delete_result.status == 'completed':
-            print("Old pdf data with source 'report' cleared from Qdrant.")
+            logger.info(f"Old pdf data with source 'report' cleared for user {current_user.email} from Qdrant. Points deleted: {delete_result.result.points}")
         else:
-            print(f"Qdrant delete status not completed: {delete_result.status}. Points deleted: {delete_result.result.points}")
+            logger.warning(f"Qdrant delete status not completed for user {current_user.email}: {delete_result.status}. Points deleted: {delete_result.result.points}")
 
     except UnexpectedResponse as e:
-        print(f"Warning: No old report data to clear or unexpected response during delete: {e}")
+        # 404 indicates no collection or points, which is fine for a delete
+        if e.status_code == 404:
+            logger.info(f"No old report data for user {current_user.email} to clear (404 response).")
+        else:
+            logger.warning(f"Unexpected response during Qdrant delete for user {current_user.email}: {e}", exc_info=True)
     except Exception as e:
-        print(f"Error clearing old report data: {e}")
-        # Pass silently, we don't want upload to fail just because old data couldn't be cleared
+        logger.error(f"Error clearing old report data for user {current_user.email}: {e}", exc_info=True)
+        # Continue with upload even if old data couldn't be cleared, but log the error.
 
     report_points = []
     for i, (v, c) in enumerate(zip(vectors, chunks)):
-        # Ensure unique IDs even if chunks are identical
-        point_id = str(uuid.uuid5(uuid.NAMESPACE_URL, file.filename + str(i) + c[:50])) # Unique ID based on filename, chunk index, and partial content
+        # Ensure unique IDs across all users and uploads by including user.id and filename
+        # Using uuid.uuid5 for consistent ID generation given the same inputs
+        point_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{current_user.id}-{file.filename}-{i}-{c[:100]}")) 
         report_points.append(
-            PointStruct(id=point_id, vector=v, payload={"text": c, "source": "report", "filename": file.filename})
+            PointStruct(id=point_id, vector=v, payload={"text": c, "source": "report", "filename": file.filename, "user_id": str(current_user.id)})
         )
 
     try:
         # Batch upsert points
         upsert_result = qdrant.upsert(collection_name=collection_name, points=report_points, wait=True)
         if upsert_result.status == 'completed':
-            print(f"Successfully indexed {len(report_points)} chunks.")
+            logger.info(f"Successfully indexed {len(report_points)} chunks for user {current_user.email} in Qdrant.")
             return JSONResponse(status_code=200, content={"detail": "✅ Report uploaded and indexed successfully!"})
         else:
-            raise Exception(f"Qdrant upsert status not completed: {upsert_result.status}")
+            # If upsert is not completed, it indicates an issue on Qdrant side
+            logger.error(f"Qdrant upsert status not completed for user {current_user.email}: {upsert_result.status}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"❌ Failed to index report: Qdrant upsert status: {upsert_result.status}")
 
     except Exception as e:
-        return JSONResponse(status_code=500, content={"detail": f"❌ Failed to index report: {e}"})
+        logger.error(f"Failed to index report for user {current_user.email}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, content={"detail": f"❌ Failed to index report: {e}"})
 
 
 # === Ask Question Endpoint ===
 class QuestionRequest(BaseModel):
     question: str
 
-@app.post("/ask")
-async def ask_question(data: QuestionRequest):
+@app.post("/ask", summary="Ask a question about uploaded reports or general medical knowledge", response_model=dict)
+async def ask_question(data: QuestionRequest, current_user: User = Depends(get_current_active_user)):
+    """
+    Asks a question and retrieves answers based on the authenticated user's indexed reports
+    and general medical knowledge. Requires authentication.
+    """
+    logger.info(f"User {current_user.email} asked: '{data.question[:50]}...'")
+
     if not data.question.strip():
-        return JSONResponse(status_code=400, content={"detail": "🚫 Please provide a question."})
+        logger.warning(f"Ask question failed for {current_user.email}: Empty question provided.")
+        raise HTTPException(status_code=400, detail="🚫 Please provide a question.")
 
     try:
         q_vec = embedder.encode(data.question).tolist()
     except Exception as e:
-        return JSONResponse(status_code=500, content={"detail": f"❌ Error encoding question: {e}"})
+        logger.error(f"Error encoding question for user {current_user.email}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"❌ Error encoding question: {e}")
 
     report_context = ""
     try:
-        # Query for relevant chunks from the 'report' source
+        # Query for relevant chunks from the 'report' source, filtered by user_id
         report_results = qdrant.query_points(
             collection_name=collection_name,
             query=q_vec,
-            limit=10, # Retrieve more chunks for reranking
+            limit=10, # Retrieve more chunks for reranking to get diverse candidates
             with_payload=True,
             query_filter=Filter(
-                must=[FieldCondition(key="source", match=MatchValue(value="report"))]
+                must=[
+                    FieldCondition(key="source", match=MatchValue(value="report")),
+                    FieldCondition(key="user_id", match=MatchValue(value=str(current_user.id)))
+                ]
             )
         )
         
         retrieved_chunks = [p.payload["text"] for p in report_results.points if p.payload and "text" in p.payload]
         
         if retrieved_chunks:
-            # Rerank and select the top 3 most relevant chunks
             top_relevant_chunks = rerank_chunks(data.question, retrieved_chunks, top_k=3)
             report_context = "\n".join(top_relevant_chunks)
-            print(f"Generated report context with {len(top_relevant_chunks)} chunks.")
+            logger.info(f"Generated report context with {len(top_relevant_chunks)} chunks for user {current_user.email}.")
         else:
-            report_context = "No highly relevant information found in patient report."
-            print("No relevant chunks found in Qdrant for 'report' source.")
+            report_context = "No highly relevant information found in your patient report."
+            logger.info(f"No relevant chunks found in Qdrant for 'report' source for user {current_user.email}.")
 
     except Exception as e:
-        print(f"Error querying report context from Qdrant: {e}")
-        report_context = "An error occurred while retrieving relevant information from the report. Providing general information."
+        logger.error(f"Error querying report context from Qdrant for user {current_user.email}: {e}", exc_info=True)
+        report_context = "An error occurred while retrieving relevant information from your report. Providing general information."
 
     # --- Prompt for Gemini ---
     prompt = f"""You are a helpful and empathetic AI assistant specialized in providing health information based on medical reports and general medical knowledge.
@@ -259,15 +354,17 @@ User's Question: "{data.question}"
 
 Based on the provided medical report context (if available and relevant) and your general medical knowledge, please answer the user's question clearly, concisely, and empathetically.
 
-If the report context is 'No highly relevant information found in patient report.', indicate that the answer is based on general medical knowledge.
+If the report context is 'No highly relevant information found in your patient report.', indicate that the answer is based on general medical knowledge.
 Always remind the user that this information is for educational purposes only and should not replace professional medical advice. Encourage them to consult a qualified healthcare provider for diagnosis and treatment.
 """
     try:
         response = model.generate_content(prompt)
-        # Check if response has text content
         if response and response.text:
+            logger.info(f"Successfully generated response for user {current_user.email}.")
             return JSONResponse(status_code=200, content={"answer": response.text})
         else:
-            return JSONResponse(status_code=500, content={"detail": "❌ Gemini did not return a valid answer. Please try again."})
+            logger.error(f"Gemini did not return a valid answer for user {current_user.email}.")
+            raise HTTPException(status_code=500, detail="❌ Gemini did not return a valid answer. Please try again.")
     except Exception as e:
-        return JSONResponse(status_code=500, content={"detail": f"❌ Gemini error: {e}"})
+        logger.error(f"Gemini error for user {current_user.email}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"❌ Gemini error: {e}")

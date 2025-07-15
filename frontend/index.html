@@ -6,16 +6,15 @@
     <title>DocQuery AI - Your Intelligent PDF Assistant</title>
     <link rel="stylesheet" href="style.css">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
 </head>
 <body>
-    <!-- Background Elements -->
     <div class="bg-orbs">
         <div class="orb orb-1"></div>
         <div class="orb orb-2"></div>
         <div class="orb orb-3"></div>
     </div>
 
-    <!-- Navigation -->
     <nav class="navbar">
         <div class="nav-container">
             <div class="nav-brand">
@@ -33,11 +32,14 @@
                     <div class="status-dot"></div>
                     <span>AI Online</span>
                 </div>
+                <div id="userInfo" class="user-info ml-4 flex items-center space-x-2">
+                    <span id="userName" class="text-gray-300"></span>
+                    <button id="logoutButton" class="btn btn-logout" style="display: none;">Logout</button>
+                </div>
             </div>
         </div>
     </nav>
 
-    <!-- Hero Section -->
     <section class="hero-section">
         <div class="hero-container">
             <div class="hero-content">
@@ -82,10 +84,8 @@
         </div>
     </section>
 
-    <!-- Main Application -->
     <main class="main-app">
         <div class="app-container">
-            <!-- Upload Section -->
             <div class="app-card upload-card">
                 <div class="card-header">
                     <div class="card-icon upload-icon">
@@ -101,9 +101,9 @@
                     </div>
                 </div>
                 <div class="card-content">
-                    <div class="upload-zone">
-                        <input id="fileInput" type="file" accept=".pdf" class="file-input" />
-                        <div class="upload-area">
+                    <div class="upload-zone" id="uploadZone">
+                        <input id="fileInput" type="file" accept="application/pdf" class="file-input" hidden />
+                        <div class="initial-state" style="display: flex;">
                             <div class="upload-icon-large">
                                 <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                                     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/>
@@ -114,8 +114,13 @@
                             </div>
                             <div class="upload-text">
                                 <p class="upload-primary">Drag & drop your PDF here</p>
-                                <p class="upload-secondary">or click to select file (Max 10MB)</p>
+                                <p class="upload-secondary">or <span class="browse-link" id="browseBtn">click to select file</span> (Max 10MB)</p>
                             </div>
+                        </div>
+                        <div class="selected-file-display" id="fileDisplayNameInsideBox" style="display: none;">
+                            <span class="file-icon">📄</span>
+                            <span class="file-name-text"></span>
+                            <button class="clear-file-button" id="clearFileButton"><i class="fas fa-times"></i></button>
                         </div>
                     </div>
                     <button id="uploadButton" class="btn btn-primary">
@@ -130,7 +135,6 @@
                 </div>
             </div>
 
-            <!-- Query Section -->
             <div class="app-card query-card">
                 <div class="card-header">
                     <div class="card-icon query-icon">
@@ -163,7 +167,6 @@
                 </div>
             </div>
 
-            <!-- Results Section -->
             <div class="app-card results-card" id="answerCard">
                 <div class="card-header">
                     <div class="card-icon results-icon">
@@ -199,7 +202,6 @@
         </div>
     </main>
 
-    <!-- Footer -->
     <footer class="footer">
         <div class="footer-container">
             <div class="footer-content">
