@@ -1,4 +1,7 @@
-const backendUrl = "http://127.0.0.1:8000";
+// --- Configuration ---
+const backendUrl = "https://docquery-rocs-backend.onrender.com"; 
+const loginPage = "index.html"; 
+const mainAppPage = "app.html";
 
 // --- Utility Functions ---
 
@@ -30,9 +33,7 @@ function decodeJwtToken(token) {
 }
 
 function displayUserInfo() {
-    const userInfoElement = document.getElementById('userInfo'); // Assuming this is your container
     const userNameElement = document.getElementById('userName');
-    const userPictureElement = document.getElementById('userPicture'); // If you have one
     const logoutBtn = document.getElementById('logoutButton');
 
     const userInfo = JSON.parse(localStorage.getItem('user_info'));
@@ -40,7 +41,6 @@ function displayUserInfo() {
     if (userInfo && userInfo.name) {
         userNameElement.textContent = `Welcome, ${userInfo.name}!`;
         if (logoutBtn) logoutBtn.style.display = 'block'; // Ensure logout button is visible
-        // You can add logic here to display userPictureElement if userInfo.picture exists
     } else {
         userNameElement.textContent = "Guest";
         if (logoutBtn) logoutBtn.style.display = 'none'; // Hide logout button if no user info
@@ -62,7 +62,7 @@ function handleAuthCallback() {
                 id: decodedToken.sub,
                 name: decodedToken.name,
                 email: decodedToken.email,
-                // picture: decodedToken.picture
+                // picture: decodedToken.picture // Uncomment if you store/display user picture
             }));
         }
 
@@ -74,10 +74,28 @@ function handleAuthCallback() {
         // If no token in URL and not already logged in, redirect to login page
         if (!getJwtToken()) {
             console.log("No JWT Token found, redirecting to login.");
-            // Only redirect if we are NOT already on introduction.html to prevent loops
-            if (window.location.pathname.endsWith("/index.html") || window.location.pathname === "/") {
-                window.location.href = "introduction.html";
+            
+            // **UPDATED REDIRECTION LOGIC**
+            // Get the current path (e.g., "/app.html", or "/" if it's the root)
+            const currentPath = window.location.pathname;
+            
+            // Check if the current page is indeed the main application page (where this script runs)
+            // It could be '/app.html' or if 'app.html' is served as the root, it could be '/'
+            const isCurrentlyOnMainAppPage = currentPath.endsWith(`/${mainAppPage}`) || currentPath === "/";
+
+            // Only redirect to the login page if we are on the main app page AND not already on the login page
+            // (The login page is now 'index.html' at the root, so its path would be '/' or '/index.html')
+            const isCurrentlyOnLoginPage = currentPath.endsWith(`/${loginPage}`) || currentPath === "/"; // This line might be redundant if mainAppPage is not '/'
+
+            // The main condition is: If we are on the page that runs this script (mainAppPage)
+            // AND we don't have a token, then redirect to the login page.
+            if (isCurrentlyOnMainAppPage && !getJwtToken()) { // Re-check getJwtToken here to be sure
+                 window.location.href = loginPage; // Redirect to the NEW login page (which is now index.html)
             }
+            // If the user navigates directly to the root ('/') and your static host serves 'app.html' as default,
+            // the 'currentPath === "/"' condition ensures they are redirected.
+            // If the user navigates directly to 'index.html' (the login page), this handleAuthCallback
+            // should not be running, as app.js is not included there.
         } else {
             // Token exists in local storage, display user info
             displayUserInfo();
@@ -87,7 +105,7 @@ function handleAuthCallback() {
 
 function logout() {
     removeJwtToken();
-    window.location.href = "introduction.html"; // Redirect to login page
+    window.location.href = loginPage; // **UPDATED: Redirect to the NEW login page**
 }
 
 // --- Event Listeners ---
@@ -102,21 +120,18 @@ document.addEventListener('DOMContentLoaded', () => {
     const questionStatus = document.getElementById('questionStatus');
     const answerText = document.getElementById('answerText');
     const logoutBtn = document.getElementById('logoutButton');
-    const uploadZone = document.getElementById('uploadZone'); // Use ID for consistency
-    const browseBtn = document.getElementById('browseBtn'); // New: for the browse button inside the zone
+    const uploadZone = document.getElementById('uploadZone');
+    const browseBtn = document.getElementById('browseBtn');
 
-    // New elements for file display inside the box
     const initialUploadState = uploadZone ? uploadZone.querySelector('.initial-state') : null;
     const selectedFileDisplay = document.getElementById('fileDisplayNameInsideBox');
     const fileNameText = selectedFileDisplay ? selectedFileDisplay.querySelector('.file-name-text') : null;
-    const clearFileButton = document.getElementById('clearFileButton'); // New: for clearing selected file
+    const clearFileButton = document.getElementById('clearFileButton');
 
 
-    // --- 1. Fix for "double asking" and general upload flow ---
-    // Ensure upload button prevents default form submission
     if (uploadButton) {
         uploadButton.addEventListener('click', (event) => {
-            event.preventDefault(); // Prevent default form submission if button is type="submit"
+            event.preventDefault();
             uploadReport();
         });
     }
@@ -126,39 +141,34 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (fileInput && uploadZone) {
-        // Handle click on browse button inside the zone
         if (browseBtn) {
             browseBtn.addEventListener('click', (e) => {
-                e.preventDefault(); // Prevent accidental form submission
+                e.preventDefault();
                 fileInput.click();
             });
         }
         
-        // --- 2. Visual feedback for drag-and-drop box ---
         const updateFileDisplay = (file) => {
             if (file && fileNameText && initialUploadState && selectedFileDisplay) {
                 fileNameText.textContent = file.name;
-                initialUploadState.style.display = 'none'; // Hide initial instructions
-                selectedFileDisplay.style.display = 'flex'; // Show selected file display (using flex for layout)
-                uploadStatus.textContent = `Selected: ${file.name}`; // Also update status below for clarity
+                initialUploadState.style.display = 'none';
+                selectedFileDisplay.style.display = 'flex';
+                uploadStatus.textContent = `Selected: ${file.name}`;
                 uploadStatus.style.color = '#6EE7B7';
             } else if (fileNameText && initialUploadState && selectedFileDisplay) {
-                // No file selected, revert to initial state
                 fileNameText.textContent = "";
-                initialUploadState.style.display = 'flex'; // Show initial instructions
-                selectedFileDisplay.style.display = 'none'; // Hide selected file display
-                uploadStatus.textContent = "No file selected."; // Clear status below
+                initialUploadState.style.display = 'flex';
+                selectedFileDisplay.style.display = 'none';
+                uploadStatus.textContent = "No file selected.";
                 uploadStatus.style.color = 'inherit';
             }
         };
 
-        // Handle file selection from input
         fileInput.addEventListener('change', (event) => {
             const file = event.target.files[0];
             updateFileDisplay(file);
         });
 
-        // Handle drag and drop
         uploadZone.addEventListener('dragover', (event) => {
             event.preventDefault();
             uploadZone.classList.add('drag-over');
@@ -171,19 +181,18 @@ document.addEventListener('DOMContentLoaded', () => {
             uploadZone.classList.remove('drag-over');
             const files = event.dataTransfer.files;
             if (files.length > 0) {
-                fileInput.files = files; // Assign dropped files to file input
+                fileInput.files = files;
                 updateFileDisplay(files[0]);
             }
         });
 
-        // Handle clearing the selected file
         if (clearFileButton) {
             clearFileButton.addEventListener('click', (e) => {
                 e.preventDefault();
-                fileInput.value = ''; // Clear the file input
-                updateFileDisplay(null); // Reset display
+                fileInput.value = '';
+                updateFileDisplay(null);
                 uploadStatus.textContent = "File cleared. Please select another.";
-                uploadStatus.style.color = '#F59E0B'; // Orange
+                uploadStatus.style.color = '#F59E0B';
             });
         }
     }
@@ -203,11 +212,11 @@ async function uploadReport() {
 
     if (!file) {
         uploadStatus.textContent = "🚫 Please select a PDF file first.";
-        uploadStatus.style.color = '#EF4444'; // Red color
+        uploadStatus.style.color = '#EF4444';
         return;
     }
 
-    if (file.size > 10 * 1024 * 1024) { // 10 MB limit
+    if (file.size > 10 * 1024 * 1024) {
         uploadStatus.textContent = "🚫 File size exceeds 10MB limit.";
         uploadStatus.style.color = '#EF4444';
         return;
@@ -217,12 +226,12 @@ async function uploadReport() {
     if (!token) {
         uploadStatus.textContent = "🚫 Not authenticated. Please log in.";
         uploadStatus.style.color = '#EF4444';
-        setTimeout(() => window.location.href = "introduction.html", 2000);
+        setTimeout(() => window.location.href = loginPage, 2000); // **UPDATED: Redirect to loginPage**
         return;
     }
 
     uploadStatus.textContent = "Uploading and processing... ⏳";
-    uploadStatus.style.color = '#F59E0B'; // Orange color
+    uploadStatus.style.color = '#F59E0B';
 
     const formData = new FormData();
     formData.append("file", file);
@@ -240,8 +249,7 @@ async function uploadReport() {
 
         if (response.ok) {
             uploadStatus.textContent = data.detail;
-            uploadStatus.style.color = '#6EE7B7'; // Green color
-            // Optional: Clear file input and reset display after successful upload
+            uploadStatus.style.color = '#6EE7B7';
             document.getElementById('fileInput').value = '';
             const uploadZone = document.getElementById('uploadZone');
             const initialUploadState = uploadZone ? uploadZone.querySelector('.initial-state') : null;
@@ -277,13 +285,13 @@ async function askQuestion() {
     if (!token) {
         questionStatus.textContent = "🚫 Not authenticated. Please log in.";
         questionStatus.style.color = '#EF4444';
-        setTimeout(() => window.location.href = "introduction.html", 2000);
+        setTimeout(() => window.location.href = loginPage, 2000); // **UPDATED: Redirect to loginPage**
         return;
     }
 
     questionStatus.textContent = "Getting an answer... 🧠";
     questionStatus.style.color = '#F59E0B';
-    answerText.textContent = ""; // Clear previous answer
+    answerText.textContent = "";
 
     try {
         const response = await fetch(`${backendUrl}/ask`, {
@@ -302,11 +310,9 @@ async function askQuestion() {
             questionStatus.textContent = "Answer ready! 🎉";
             questionStatus.style.color = '#6EE7B7';
 
-            // --- 3. Fix for answer not sliding down ---
-            // Assuming answerText is within a scrollable area, or you want to scroll the window
             answerText.scrollIntoView({
-                behavior: 'smooth', // Smooth scrolling
-                block: 'center'    // Scroll to the middle of the viewport
+                behavior: 'smooth',
+                block: 'center'
             });
 
         } else {
