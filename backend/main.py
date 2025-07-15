@@ -32,8 +32,8 @@ from models import User # Assuming models.py defines a Pydantic User model (or S
 
 # === Setup ===
 app = FastAPI(
-    title="Medical Report AI Assistant",
-    description="An AI assistant to answer questions based on uploaded medical reports, with user authentication.",
+    title="DocQuery",
+    description="An AI assistant to answer questions based on uploaded pdf, with user authentication.",
     version="1.0.0"
 )
 
@@ -81,7 +81,7 @@ except Exception as e:
     logger.critical(f"Failed to load sentence-transformer models: {e}", exc_info=True)
     raise RuntimeError(f"Failed to load sentence-transformer models: {e}")
 
-collection_name = "medical_docs"
+collection_name = "general_docs"
 
 # --- Qdrant Client configuration ---
 qdrant_url = os.getenv("QDRANT_URL")
@@ -344,19 +344,28 @@ async def ask_question(data: QuestionRequest, current_user: User = Depends(get_c
         report_context = "An error occurred while retrieving relevant information from your report. Providing general information."
 
     # --- Prompt for Gemini ---
-    prompt = f"""You are a helpful and empathetic AI assistant specialized in providing health information based on medical reports and general medical knowledge.
+    prompt = f"""
+You are a helpful, knowledgeable, and empathetic AI health assistant designed to assist users in understanding their medical reports and answering general health-related questions.
 
-User's Question: "{data.question}"
+--- User's Question ---
+{data.question}
+--- End of Question ---
 
---- Medical Report Context ---
+--- Extracted Report Context ---
 {report_context}
---- End of Medical Report Context ---
+--- End of Report Context ---
 
-Based on the provided medical report context (if available and relevant) and your general medical knowledge, please answer the user's question clearly, concisely, and empathetically.
+Instructions:
+1. Use the provided report context (if it contains relevant details) to answer the user's question as accurately and clearly as possible.
+2. If the report context says "No highly relevant information found in your patient report.", rely on your general medical knowledge to answer the question instead.
+3. Respond with clarity, empathy, and professionalism, making the explanation easy to understand for a non-medical user.
+4. Include a polite disclaimer at the end of your response:
 
-If the report context is 'No highly relevant information found in your patient report.', indicate that the answer is based on general medical knowledge.
-Always remind the user that this information is for educational purposes only and should not replace professional medical advice. Encourage them to consult a qualified healthcare provider for diagnosis and treatment.
+"**Disclaimer:** This information is for educational purposes only and is not a substitute for professional medical advice, diagnosis, or treatment. Please consult a licensed healthcare provider for personal medical concerns."
+
+Return only the final response as if you are directly speaking to the user.
 """
+
     try:
         response = model.generate_content(prompt)
         if response and response.text:

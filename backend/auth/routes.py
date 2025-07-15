@@ -5,8 +5,8 @@ from jose import jwt
 import os
 from dotenv import load_dotenv
 from database import SessionLocal
-from models import User 
-from .oauth import oauth 
+from models import User
+from .oauth import oauth
 
 load_dotenv()
 router = APIRouter()
@@ -16,6 +16,12 @@ ALGORITHM = "HS256"
 
 if not SECRET_KEY:
     raise RuntimeError("SECRET_KEY environment variable not set. Please generate a strong secret key.")
+
+# Load allowed emails
+ALLOWED_EMAILS_STR = os.getenv("ALLOWED_GMAIL_EMAILS")
+# Convert comma-separated string to a set for efficient lookup
+ALLOWED_EMAILS = set(email.strip().lower() for email in ALLOWED_EMAILS_STR.split(',')) if ALLOWED_EMAILS_STR else set()
+
 
 def get_db():
     db = SessionLocal()
@@ -29,7 +35,6 @@ async def login(request: Request):
     """
     Redirects the user to Google's authentication page.
     """
-    # The 'auth_callback' endpoint is the callback URL (defined in this router)
     redirect_uri = request.url_for('auth_callback')
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
@@ -63,6 +68,15 @@ async def auth_callback(request: Request, db: Session = Depends(get_db)):
             detail="Google login failed: Incomplete user information received."
         )
 
+    user_email = user_info["email"].lower() # Get the email and convert to lowercase for consistent comparison
+
+    # --- NEW: Check if the email is in the allowed list ---
+    if ALLOWED_EMAILS and user_email not in ALLOWED_EMAILS:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, # Forbidden status
+            detail="Access Denied: Your email is not authorized to access this application. Please use a permitted email address."
+        )
+
     # Check if user exists in our database
     user = db.query(User).filter(User.id == user_info["sub"]).first()
     if not user:
@@ -75,17 +89,14 @@ async def auth_callback(request: Request, db: Session = Depends(get_db)):
         )
         db.add(user)
         db.commit()
-        db.refresh(user) # Refresh to get any default values or relationships
+        db.refresh(user)
 
     # Create JWT token
-    # 'sub' (subject) is typically the user ID.
-    # We include 'email' and 'name' for convenience, but 'sub' should be enough to identify the user.
     payload = {"sub": user.id, "name": user.name, "email": user.email}
     jwt_token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
     # Redirect to the frontend with the JWT token
-    # Ensure this URL matches your frontend's expected callback location
     frontend_redirect_url = os.getenv("FRONTEND_REDIRECT_URL")
     redirect_url = f"{frontend_redirect_url}?token={jwt_token}"
-    
+
     return RedirectResponse(url=redirect_url)
