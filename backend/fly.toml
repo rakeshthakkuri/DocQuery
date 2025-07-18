@@ -1,4 +1,4 @@
-# fly.toml app configuration file generated for docquery on 2025-07-18T22:14:09+05:30
+# fly.toml app configuration file generated for docquery on 2025-07-18T18:26:39Z
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
@@ -20,3 +20,4 @@ primary_region = 'bom'
   memory = '1gb'
   cpu_kind = 'shared'
   cpus = 1
+  memory_mb = 1024
