@@ -17,12 +17,6 @@ ALGORITHM = "HS256"
 if not SECRET_KEY:
     raise RuntimeError("SECRET_KEY environment variable not set. Please generate a strong secret key.")
 
-# Load allowed emails
-ALLOWED_EMAILS_STR = os.getenv("ALLOWED_GMAIL_EMAILS")
-# Convert comma-separated string to a set for efficient lookup
-ALLOWED_EMAILS = set(email.strip().lower() for email in ALLOWED_EMAILS_STR.split(',')) if ALLOWED_EMAILS_STR else set()
-
-
 def get_db():
     db = SessionLocal()
     try:
@@ -69,14 +63,6 @@ async def auth_callback(request: Request, db: Session = Depends(get_db)):
         )
 
     user_email = user_info["email"].lower() # Get the email and convert to lowercase for consistent comparison
-
-    # --- NEW: Check if the email is in the allowed list ---
-    if ALLOWED_EMAILS and user_email not in ALLOWED_EMAILS:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, # Forbidden status
-            detail="Access Denied: Your email is not authorized to access this application. Please use a permitted email address."
-        )
-
     # Check if user exists in our database
     user = db.query(User).filter(User.id == user_info["sub"]).first()
     if not user:
