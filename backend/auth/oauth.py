@@ -6,8 +6,8 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import jwt, JWTError
 from sqlalchemy.orm import Session
-from database import SessionLocal # Adjusted import path, direct import from backend/
-from models import User # Adjusted import path, direct import from backend/
+from database import SessionLocal 
+from models import User 
 
 load_dotenv()
 
@@ -67,9 +67,5 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
         raise credentials_exception
     return user
 
-# For this project, "active" simply means the user exists and has a valid token.
-# You could add more checks here (e.g., user.is_active if you had such a field in User model)
 async def get_current_active_user(current_user: User = Depends(get_current_user)):
-    # You can add logic here to check if the user is "active" based on your application's rules
-    # For now, we simply return the user obtained from the token.
     return current_user

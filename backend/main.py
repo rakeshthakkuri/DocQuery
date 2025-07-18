@@ -24,12 +24,9 @@ from google.generativeai import configure, GenerativeModel
 import logging # For more structured logging
 
 # --- Authentication Imports ---
-# These imports are relative to the 'backend' directory.
-# They assume you run your FastAPI app from the 'backend' directory (e.g., `uvicorn main:app --reload`)
 from auth.routes import router as auth_router
 from auth.oauth import get_current_active_user
-from models import User # Assuming models.py defines a Pydantic User model (or SQLAlchemy model)
-
+from models import User 
 # === Setup ===
 app = FastAPI(
     title="DocQuery",
@@ -46,14 +43,13 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["https://docquery-rocs.onrender.com"], 
     allow_credentials=True,
-    allow_methods=["*"], # Or specify ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+    allow_methods=["*"],
     allow_headers=["*"]
 )
 
 # Load environment variables
 load_dotenv()
 
-# Session Middleware (if you're using sessions, otherwise can be removed if only JWT is for auth)
 SESSION_SECRET_KEY = os.getenv("SECRET_KEY") 
 if not SESSION_SECRET_KEY:
     logger.error("SECRET_KEY environment variable not set. SessionMiddleware requires it.")
@@ -89,12 +85,11 @@ if not qdrant_url:
     logger.critical("QDRANT_URL environment variable not set. Please set it to your Qdrant instance URL (e.g., your Qdrant Cloud URL).")
     raise RuntimeError("QDRANT_URL environment variable not set. Please set it to your Qdrant instance URL (e.g., your Qdrant Cloud URL).")
 
-qdrant_api_key = os.getenv("QDRANT_API_KEY") # Optional, depending on your Qdrant setup
-
+qdrant_api_key = os.getenv("QDRANT_API_KEY")
 qdrant = QdrantClient(
     url=qdrant_url,
     api_key=qdrant_api_key,
-    timeout=60.0 # Increased timeout for potentially long operations like initial indexing
+    timeout=60.0 
 )
 
 # Print Qdrant client version for debugging
@@ -120,7 +115,7 @@ except UnexpectedResponse as e:
             qdrant.recreate_collection(
                 collection_name=collection_name,
                 vectors_config=VectorParams(size=vector_dim, distance=Distance.COSINE),
-                timeout=60.0 # Ensure recreation also has sufficient timeout
+                timeout=60.0 
             )
             logger.info(f"Qdrant collection '{collection_name}' recreated successfully.")
         except Exception as recreate_e:
@@ -133,14 +128,12 @@ except Exception as e:
     logger.critical(f"Error checking/creating Qdrant collection: {e}", exc_info=True)
     raise RuntimeError(f"Error checking/creating Qdrant collection: {e}")
 
-# --- Create payload index for 'source' and 'user_id' fields ---
-# This ensures that filtering by these fields is efficient and doesn't throw errors
 for field_name in ["source", "user_id"]:
     try:
         qdrant.create_payload_index(
             collection_name=collection_name,
             field_name=field_name,
-            field_schema="keyword" # For string values like "report" and user IDs
+            field_schema="keyword" 
         )
         logger.info(f"Payload index for '{field_name}' field created or already exists in collection '{collection_name}'.")
     except UnexpectedResponse as e:
@@ -180,11 +173,8 @@ def rerank_chunks(question: str, chunks: list[str], top_k=3) -> list[str]:
     logger.info(f"Reranked {len(chunks)} chunks to top {len(top_chunks)}. Top scores: {[round(s, 3) for _, s in ranked[:top_k]]}")
     return top_chunks
 
-# --- Include Authentication Router ---
-# This line mounts your auth router under the /auth prefix
-app.include_router(auth_router, prefix="/auth", tags=["Authentication"])
 
-# === Protected Routes ===
+app.include_router(auth_router, prefix="/auth", tags=["Authentication"])
 
 # Root path for testing authentication
 @app.get("/", summary="Test authentication status", response_model=dict)
@@ -249,7 +239,7 @@ async def upload_report(file: UploadFile = File(..., description="The PDF medica
                     ]
                 )
             ),
-            wait=True # Wait for the delete operation to complete
+            wait=True
         )
         if delete_result.status == 'completed':
             logger.info(f"Old pdf data with source 'report' cleared for user {current_user.email} from Qdrant. Points deleted: {delete_result.result.points}")
