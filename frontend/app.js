@@ -1,5 +1,5 @@
 // --- Configuration ---
-const backendUrl = "http://127.0.0.1:8000"; 
+const backendUrl = "https://docquery.fly.dev"; 
 const loginPage = "index.html"; 
 const mainAppPage = "app.html";
 
