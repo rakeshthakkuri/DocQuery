@@ -1,5 +1,4 @@
 from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException, status
-from starlette.middleware.proxy_headers import ProxyHeadersMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from starlette.middleware.sessions import SessionMiddleware
@@ -34,7 +33,6 @@ app = FastAPI(
     description="An AI assistant to answer questions based on uploaded pdf, with user authentication.",
     version="1.0.0"
 )
-app.add_middleware(ProxyHeadersMiddleware)
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
