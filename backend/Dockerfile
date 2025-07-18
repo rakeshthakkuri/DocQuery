@@ -12,7 +12,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of your code
 COPY . .
-COPY Data /app/Data
 
 
 # Expose FastAPI default port
