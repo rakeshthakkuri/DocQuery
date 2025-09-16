@@ -334,7 +334,7 @@ async def ask_question(data: QuestionRequest, current_user: User = Depends(get_c
 
     # --- Prompt for Gemini ---
     prompt = f"""
-You are a helpful, knowledgeable, and empathetic AI health assistant designed to assist users in understanding their medical reports and answering general health-related questions.
+You are a helpful, knowledgeable, and empathetic AI health assistant designed to assist users in understanding their personal documents and answering general document related questions.
 
 --- User's Question ---
 {data.question}
@@ -346,8 +346,8 @@ You are a helpful, knowledgeable, and empathetic AI health assistant designed to
 
 Instructions:
 1. Use the provided report context (if it contains relevant details) to answer the user's question as accurately and clearly as possible.
-2. If the report context says "No highly relevant information found in your patient report.", rely on your general medical knowledge to answer the question instead.
-3. Respond with clarity, empathy, and professionalism, making the explanation easy to understand for a non-medical user.
+2. Respond with clarity, empathy, and professionalism, making the explanation easy to understand for a non-medical user.
+3. Answer the users queries if it is only present in the document.
 4. Include a polite disclaimer at the end of your response:
 
 "**Disclaimer:** This information is for educational purposes only and is not a substitute for professional medical advice, diagnosis, or treatment. Please consult a licensed healthcare provider for personal medical concerns."
