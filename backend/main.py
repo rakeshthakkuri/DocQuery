@@ -62,8 +62,8 @@ if not gemini_api_key:
     raise RuntimeError("GEMINI_API_KEY not set in environment.")
 
 configure(api_key=gemini_api_key)
-model = GenerativeModel("gemini-1.5-flash")
-logger.info("Google Generative AI model 'gemini-1.5-flash' configured.")
+model = GenerativeModel("gemini-2.5-flash")
+logger.info("Google Generative AI model 'gemini-2.5-flash' configured.")
 
 # Load models globally to avoid reloading on each request
 # Using 'cpu' for broad compatibility. Consider 'cuda' if a GPU is available and configured.
