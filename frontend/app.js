@@ -449,14 +449,10 @@ function downloadAsText(text, filename = 'docquery-response.txt') {
     URL.revokeObjectURL(url);
 }
 
-async function downloadAsPDF(text, filename = 'docquery-response.pdf') {
+function downloadAsPDF(text, filename = 'docquery-response.pdf') {
     // Using jsPDF library for PDF generation
     try {
-        // Dynamically load jsPDF library if not already loaded
-        if (typeof jsPDF === 'undefined') {
-            await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
-        }
-        
+        // The library is now loaded in the HTML
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF();
         
@@ -634,7 +630,7 @@ function downloadTextFile() {
     downloadAsText(content, filename);
 }
 
-async function downloadPDFFile() {
+function downloadPDFFile() {
     if (!currentAnswer) {
         alert('No response to download. Please ask a question first.');
         return;
@@ -646,7 +642,7 @@ async function downloadPDFFile() {
     
     // Format the content with question and answer
     const content = `Question: ${question}\n\nAnswer: ${currentAnswer}`;
-    await downloadAsPDF(content, filename);
+    downloadAsPDF(content, filename);
 }
 
 // --- Document Management Functions ---
