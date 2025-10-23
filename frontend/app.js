@@ -53,9 +53,23 @@ function displayUserInfo() {
 function handleAuthCallback() {
     const urlParams = new URLSearchParams(window.location.search);
     const token = urlParams.get('token');
+    const error = urlParams.get('error');
 
     console.log("Auth callback - Token found:", !!token);
+    console.log("Auth callback - Error found:", error);
     console.log("Current URL:", window.location.href);
+
+    // Handle OAuth errors
+    if (error) {
+        console.error("OAuth error:", error);
+        if (error === 'csrf_state_mismatch') {
+            alert('Authentication session expired. Please try logging in again.');
+            // Clear any existing tokens and redirect to login
+            removeJwtToken();
+            window.location.href = 'https://docquerytest.fly.dev/auth/google/login';
+            return;
+        }
+    }
 
     if (token) {
         setJwtToken(token);

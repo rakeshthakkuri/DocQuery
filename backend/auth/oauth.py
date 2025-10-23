@@ -26,7 +26,11 @@ oauth.register(
     client_id=config_data["GOOGLE_CLIENT_ID"],
     client_secret=config_data["GOOGLE_CLIENT_SECRET"],
     server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
-    client_kwargs={'scope': 'openid email profile'},
+    client_kwargs={
+        'scope': 'openid email profile',
+        'response_type': 'code',
+        'prompt': 'select_account'  # Force account selection to avoid state issues
+    },
 )
 
 # --- JWT Authentication Setup ---
