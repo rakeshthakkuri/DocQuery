@@ -127,7 +127,7 @@ except Exception as e:
     logger.critical(f"Error checking/creating Qdrant collection: {e}", exc_info=True)
     raise RuntimeError(f"Error checking/creating Qdrant collection: {e}")
 
-for field_name in ["source", "user_id"]:
+for field_name in ["source", "user_id", "filename"]:
     try:
         qdrant.create_payload_index(
             collection_name=collection_name,
@@ -474,6 +474,18 @@ async def delete_document(filename: str, current_user: User = Depends(get_curren
     Deletes a specific document and all its chunks from the user's collection.
     """
     try:
+        # First, try to create the filename index if it doesn't exist
+        try:
+            qdrant.create_payload_index(
+                collection_name=collection_name,
+                field_name="filename",
+                field_schema="keyword"
+            )
+            logger.info(f"Created filename index for collection '{collection_name}'")
+        except Exception as index_e:
+            # Index might already exist, which is fine
+            logger.debug(f"Filename index creation result: {index_e}")
+
         # Delete all points for the specific document
         delete_result = qdrant.delete(
             collection_name=collection_name,
@@ -504,11 +516,69 @@ async def delete_document(filename: str, current_user: User = Depends(get_curren
         if e.status_code == 404:
             logger.info(f"Document '{filename}' not found for user {current_user.email}")
             raise HTTPException(status_code=404, detail=f"🚫 Document '{filename}' not found.")
+        elif "Index required but not found" in str(e):
+            logger.error(f"Index error during document deletion: {e}", exc_info=True)
+            # Try alternative approach - get all user documents and filter by filename
+            try:
+                return await delete_document_fallback(filename, current_user)
+            except Exception as fallback_e:
+                logger.error(f"Fallback deletion also failed: {fallback_e}", exc_info=True)
+                raise HTTPException(status_code=500, detail=f"❌ Error deleting document: Index not available. Please try again.")
         else:
             logger.error(f"Unexpected response during document deletion: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"❌ Error deleting document: {e}")
     except Exception as e:
         logger.error(f"Error deleting document '{filename}' for user {current_user.email}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"❌ Error deleting document: {e}")
+
+
+async def delete_document_fallback(filename: str, current_user: User):
+    """
+    Fallback method to delete document when index is not available.
+    Gets all user documents and filters by filename.
+    """
+    try:
+        # Get all points for the user
+        all_results = qdrant.scroll(
+            collection_name=collection_name,
+            scroll_filter=Filter(
+                must=[
+                    FieldCondition(key="source", match=MatchValue(value="document")),
+                    FieldCondition(key="user_id", match=MatchValue(value=str(current_user.id)))
+                ]
+            ),
+            limit=1000,
+            with_payload=True
+        )
+        
+        # Filter points by filename
+        points_to_delete = []
+        for point in all_results[0]:
+            if point.payload and point.payload.get("filename") == filename:
+                points_to_delete.append(point.id)
+        
+        if not points_to_delete:
+            raise HTTPException(status_code=404, detail=f"🚫 Document '{filename}' not found.")
+        
+        # Delete the filtered points
+        delete_result = qdrant.delete(
+            collection_name=collection_name,
+            points_selector=points_to_delete,
+            wait=True
+        )
+        
+        if delete_result.status == 'completed':
+            deleted_count = len(points_to_delete)
+            logger.info(f"Successfully deleted document '{filename}' with {deleted_count} chunks using fallback method for user {current_user.email}")
+            return JSONResponse(status_code=200, content={
+                "detail": f"✅ Document '{filename}' deleted successfully!",
+                "deleted_chunks": deleted_count
+            })
+        else:
+            raise HTTPException(status_code=500, detail=f"❌ Failed to delete document: {delete_result.status}")
+            
+    except Exception as e:
+        logger.error(f"Fallback deletion failed for document '{filename}': {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"❌ Error deleting document: {e}")
 
 
