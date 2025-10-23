@@ -54,6 +54,9 @@ function handleAuthCallback() {
     const urlParams = new URLSearchParams(window.location.search);
     const token = urlParams.get('token');
 
+    console.log("Auth callback - Token found:", !!token);
+    console.log("Current URL:", window.location.href);
+
     if (token) {
         setJwtToken(token);
         const decodedToken = decodeJwtToken(token);
@@ -64,11 +67,13 @@ function handleAuthCallback() {
                 email: decodedToken.email,
                 // picture: decodedToken.picture // Uncomment if you store/display user picture
             }));
+            console.log("User info stored:", decodedToken.name, decodedToken.email);
         }
 
         // Clear the token from the URL for security and cleanliness
-        window.history.replaceState({}, document.title, window.location.pathname);
-        console.log("JWT Token received and stored.");
+        const cleanUrl = window.location.pathname;
+        window.history.replaceState({}, document.title, cleanUrl);
+        console.log("JWT Token received and stored. Cleaned URL to:", cleanUrl);
         displayUserInfo(); // Update UI immediately after token is processed
     } else {
         // If no token in URL and not already logged in, redirect to login page
@@ -327,6 +332,7 @@ async function uploadDocuments() {
     }
 
     const token = getJwtToken();
+    console.log("Upload - Token available:", !!token);
     if (!token) {
         uploadStatus.textContent = "🚫 Not authenticated. Please log in.";
         uploadStatus.style.color = '#EF4444';
@@ -393,6 +399,7 @@ async function askQuestion() {
     }
 
     const token = getJwtToken();
+    console.log("Ask question - Token available:", !!token);
     if (!token) {
         questionStatus.textContent = "🚫 Not authenticated. Please log in.";
         questionStatus.style.color = '#EF4444';
