@@ -453,7 +453,7 @@ function downloadAsPDF(text, filename = 'docquery-response.pdf') {
     // Using jsPDF library for PDF generation
     try {
         // The library is now loaded in the HTML
-        const { jsPDF } = window.jspdf;
+        const jsPDF = window.jspdf.jsPDF;
         const doc = new jsPDF();
         
         // Add title
