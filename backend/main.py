@@ -502,7 +502,17 @@ async def delete_document(filename: str, current_user: User = Depends(get_curren
         )
         
         if delete_result.status == 'completed':
-            deleted_count = delete_result.result.points if hasattr(delete_result.result, 'points') else 0
+            # Handle different response structures from Qdrant
+            deleted_count = 0
+            if hasattr(delete_result, 'result') and hasattr(delete_result.result, 'points'):
+                deleted_count = delete_result.result.points
+            elif hasattr(delete_result, 'operation_id'):
+                # For newer Qdrant versions, we might not get exact count
+                deleted_count = "unknown"
+            else:
+                # Try to get count from other possible attributes
+                deleted_count = getattr(delete_result, 'points', "unknown")
+            
             logger.info(f"Successfully deleted document '{filename}' with {deleted_count} chunks for user {current_user.email}")
             return JSONResponse(status_code=200, content={
                 "detail": f"✅ Document '{filename}' deleted successfully!",
@@ -602,7 +612,17 @@ async def delete_all_documents(current_user: User = Depends(get_current_active_u
         )
         
         if delete_result.status == 'completed':
-            deleted_count = delete_result.result.points if hasattr(delete_result.result, 'points') else 0
+            # Handle different response structures from Qdrant
+            deleted_count = 0
+            if hasattr(delete_result, 'result') and hasattr(delete_result.result, 'points'):
+                deleted_count = delete_result.result.points
+            elif hasattr(delete_result, 'operation_id'):
+                # For newer Qdrant versions, we might not get exact count
+                deleted_count = "unknown"
+            else:
+                # Try to get count from other possible attributes
+                deleted_count = getattr(delete_result, 'points', "unknown")
+            
             logger.info(f"Successfully deleted all documents with {deleted_count} chunks for user {current_user.email}")
             return JSONResponse(status_code=200, content={
                 "detail": "✅ All documents deleted successfully!",
