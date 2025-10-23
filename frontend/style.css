@@ -1,8 +1,11 @@
 /* Basic Reset & Body Styles */
+* {
+  box-sizing: border-box;
+}
+
 body {
   margin: 0;
   padding: 0;
-  box-sizing: border-box;
   font-family: 'Poppins', sans-serif;
   background-color: #0f172a; /* Tailwind bg-gray-900 */
   color: #e2e8f0; /* Tailwind text-gray-200 */
@@ -14,6 +17,7 @@ body {
   flex-direction: column;
   position: relative;
   overflow-x: hidden; /* Prevent horizontal scroll */
+  font-size: 16px; /* Base font size for better mobile readability */
 }
 
 /* Global Container for Centering */
@@ -99,6 +103,11 @@ body {
   transition: all 0.3s ease;
   border: none;
   text-decoration: none; /* For anchor tags acting as buttons */
+  min-height: 44px; /* Touch-friendly minimum height */
+  min-width: 44px; /* Touch-friendly minimum width */
+  font-size: 1rem;
+  -webkit-tap-highlight-color: transparent; /* Remove tap highlight on mobile */
+  user-select: none; /* Prevent text selection on buttons */
 }
 
 .btn-primary {
@@ -394,6 +403,9 @@ body {
   height: 100%;
   opacity: 0;
   cursor: pointer;
+  font-size: 16px; /* Prevent zoom on iOS */
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 .upload-area {
@@ -435,6 +447,9 @@ body {
   color: #e2e8f0;
   font-size: 1rem;
   transition: all 0.2s ease;
+  min-height: 48px; /* Touch-friendly minimum height */
+  -webkit-appearance: none; /* Remove iOS styling */
+  appearance: none;
 }
 
 .query-input::placeholder {
@@ -445,6 +460,13 @@ body {
   outline: none;
   border-color: #a855f7; /* Purple */
   box-shadow: 0 0 0 3px rgba(168, 85, 247, 0.3);
+}
+
+/* Prevent zoom on iOS when focusing inputs */
+@media screen and (-webkit-min-device-pixel-ratio: 0) {
+  .query-input {
+    font-size: 16px;
+  }
 }
 
 .input-suggestions {
@@ -558,52 +580,184 @@ body {
   color: #94a3b8;
 }
 
-/* Responsive Adjustments */
+/* Enhanced Responsive Design */
+
+/* Large screens (desktops) */
+@media (min-width: 1200px) {
+  .app-container {
+      max-width: 1200px;
+      grid-template-columns: repeat(3, 1fr);
+  }
+  .upload-card,
+  .query-card {
+      grid-column: span 1;
+  }
+  .documents-card,
+  .results-card {
+      grid-column: span 3;
+  }
+}
+
+/* Medium screens (tablets) */
+@media (max-width: 1024px) {
+  .app-container {
+      max-width: 900px;
+      grid-template-columns: repeat(2, 1fr);
+  }
+  .documents-card,
+  .results-card {
+      grid-column: span 2;
+  }
+}
+
+/* Small screens (mobile landscape) */
 @media (max-width: 768px) {
   .hero-title {
       font-size: 2.5rem;
+      line-height: 1.2;
   }
   .hero-description {
       font-size: 1rem;
+      padding: 0 1rem;
   }
   .hero-features {
       flex-direction: column;
       align-items: center;
+      gap: 1rem;
   }
+  .feature-item {
+      width: 100%;
+      max-width: 300px;
+      justify-content: center;
+  }
+  
+  .app-container {
+      grid-template-columns: 1fr;
+      gap: 1.5rem;
+      padding: 0 1rem;
+  }
+  
   .app-card {
       padding: 1.5rem;
+      margin: 0;
   }
   .card-title {
       font-size: 1.5rem;
   }
-  .upload-zone {
-      padding: 1.5rem;
-  }
-  .query-input {
+  .card-subtitle {
       font-size: 0.9rem;
   }
+  
+  .upload-zone {
+      padding: 1.5rem;
+      min-height: 150px;
+  }
+  
+  .query-input {
+      font-size: 0.9rem;
+      padding: 0.75rem;
+  }
+  .input-suggestions {
+      flex-direction: column;
+      align-items: stretch;
+  }
   .suggestion-btn {
-      font-size: 0.75rem;
-      padding: 0.4rem 0.8rem;
+      font-size: 0.8rem;
+      padding: 0.5rem 1rem;
+      text-align: center;
+      margin: 0.25rem 0;
+  }
+  
+  .documents-actions {
+      flex-direction: column;
+      gap: 0.75rem;
+  }
+  .documents-actions .btn {
+      width: 100%;
+      justify-content: center;
+  }
+  
+  .files-header {
+      flex-direction: column;
+      gap: 0.5rem;
+      text-align: center;
+  }
+  .clear-all-button {
+      align-self: center;
+  }
+  
+  .document-item {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 0.75rem;
+  }
+  .document-actions {
+      justify-content: center;
+  }
+  .document-actions .btn {
+      flex: 1;
+      max-width: 120px;
   }
 }
 
+/* Extra small screens (mobile portrait) */
 @media (max-width: 480px) {
+  .container {
+      padding: 0 1rem;
+  }
+  
   .hero-title {
       font-size: 2rem;
+      line-height: 1.1;
+  }
+  .hero-description {
+      font-size: 0.9rem;
+      padding: 0 0.5rem;
+  }
+  
+  .nav-container {
+      padding: 0 1rem;
+      flex-direction: column;
+      gap: 0.5rem;
   }
   .nav-brand {
       font-size: 1.2rem;
+  }
+  .nav-status {
+      flex-direction: column;
+      align-items: center;
+      gap: 0.5rem;
   }
   .status-indicator {
       font-size: 0.7rem;
       padding: 0.2rem 0.5rem;
   }
+  
+  .app-container {
+      padding: 0 0.5rem;
+      gap: 1rem;
+  }
+  
   .app-card {
       padding: 1rem;
+      border-radius: 1rem;
+  }
+  .card-header {
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      gap: 0.75rem;
   }
   .card-title {
       font-size: 1.25rem;
+  }
+  .card-subtitle {
+      font-size: 0.85rem;
+  }
+  
+  .upload-zone {
+      padding: 1rem;
+      min-height: 120px;
   }
   .upload-text .upload-primary {
       font-size: 1rem;
@@ -611,9 +765,110 @@ body {
   .upload-text .upload-secondary {
       font-size: 0.8rem;
   }
+  
+  .query-input {
+      font-size: 0.85rem;
+      padding: 0.6rem;
+  }
+  .suggestion-btn {
+      font-size: 0.75rem;
+      padding: 0.4rem 0.8rem;
+  }
+  
   .btn {
       padding: 0.6rem 1.2rem;
       font-size: 0.9rem;
+      min-height: 44px; /* Touch-friendly minimum */
+  }
+  .btn-small {
+      padding: 0.4rem 0.8rem;
+      font-size: 0.8rem;
+      min-height: 36px;
+  }
+  
+  .files-list {
+      max-height: 150px;
+  }
+  .file-item {
+      padding: 0.5rem;
+  }
+  .file-item .file-name {
+      font-size: 0.85rem;
+  }
+  .file-item .file-size {
+      font-size: 0.7rem;
+  }
+  
+  .documents-list {
+      max-height: 200px;
+      padding: 0.75rem;
+  }
+  .document-item {
+      padding: 0.75rem;
+  }
+  .document-name {
+      font-size: 0.85rem;
+  }
+  .document-meta {
+      font-size: 0.7rem;
+  }
+  
+  .results-content {
+      padding: 1rem;
+      max-height: 250px;
+  }
+  .answer-text {
+      font-size: 0.9rem;
+      line-height: 1.5;
+  }
+  
+  .disclaimer {
+      padding: 0.75rem;
+      font-size: 0.8rem;
+  }
+  
+  .footer-container {
+      padding: 0 1rem;
+  }
+  .footer-brand {
+      font-size: 1.1rem;
+  }
+  .footer-text {
+      font-size: 0.85rem;
+  }
+}
+
+/* Touch-friendly improvements */
+@media (hover: none) and (pointer: coarse) {
+  .btn:hover {
+      transform: none; /* Disable hover effects on touch devices */
+  }
+  .app-card:hover {
+      transform: none;
+  }
+  .file-item:hover {
+      background-color: rgba(30, 41, 59, 0.6);
+  }
+  .document-item:hover {
+      transform: none;
+  }
+  
+  /* Increase touch targets */
+  .suggestion-btn,
+  .clear-all-button,
+  .remove-file-button,
+  .clear-file-button {
+      min-height: 44px;
+      min-width: 44px;
+  }
+}
+
+/* High DPI displays */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+  .brand-icon svg,
+  .card-icon svg,
+  .btn svg {
+      shape-rendering: geometricPrecision;
   }
 }
 /* --- Enhanced styles for Multiple File Upload UI --- */
