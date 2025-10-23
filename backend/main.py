@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 # CORS Middleware for frontend communication
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://docquery-rocs.onrender.com"], 
+    allow_origins=["https://docquery-rocs.onrender.com","https://docquerytest2.onrender.com"], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"]

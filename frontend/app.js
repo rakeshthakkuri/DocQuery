@@ -1,5 +1,5 @@
 // --- Configuration ---
-const backendUrl = "https://docquery.fly.dev"; 
+const backendUrl = "https://docquerytest.fly.dev"; 
 const loginPage = "index.html"; 
 const mainAppPage = "app.html";
 
