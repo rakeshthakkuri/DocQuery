@@ -349,6 +349,31 @@ body {
   color: #fff;
 }
 
+/* Action buttons for translation and download */
+.action-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+    justify-content: center;
+}
+
+.action-buttons button {
+    width: 180px;
+    height: 40px;
+    flex-shrink: 0;
+    flex-grow: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+@media (min-width: 1366px) {
+    .action-buttons {
+        justify-content: flex-start;
+    }
+}
+
 /* Navbar */
 .navbar {
   background-color: rgba(30, 41, 59, 0.85); /* bg-slate-800 with slightly more opacity */

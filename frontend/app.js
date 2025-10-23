@@ -400,6 +400,99 @@ async function uploadDocuments() {
     }
 }
 
+// Translation utility function
+async function translateText(text, targetLanguage) {
+    // Using Google Translate API through a free proxy
+    const apiUrl = 'https://translate.googleapis.com/translate_a/single';
+    const params = new URLSearchParams({
+        client: 'gtx',
+        sl: 'auto',
+        tl: targetLanguage,
+        dt: 't',
+        q: text
+    });
+
+    try {
+        const response = await fetch(`${apiUrl}?${params}`);
+        const data = await response.json();
+        
+        // Extract translated text from the response
+        let translatedText = '';
+        if (data && data[0]) {
+            data[0].forEach(item => {
+                if (item[0]) {
+                    translatedText += item[0];
+                }
+            });
+        }
+        
+        return translatedText || 'Translation failed';
+    } catch (error) {
+        console.error('Translation error:', error);
+        return 'Translation error: ' + error.message;
+    }
+}
+
+// Store the original answer for translation and download
+let currentAnswer = '';
+
+// Download utility functions
+function downloadAsText(text, filename = 'docquery-response.txt') {
+    const blob = new Blob([text], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+async function downloadAsPDF(text, filename = 'docquery-response.pdf') {
+    // Using jsPDF library for PDF generation
+    try {
+        // Dynamically load jsPDF library if not already loaded
+        if (typeof jsPDF === 'undefined') {
+            await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+        }
+        
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+        
+        // Add title
+        doc.setFontSize(16);
+        doc.text('DocQuery AI Response', 20, 20);
+        
+        // Add timestamp
+        doc.setFontSize(10);
+        doc.text(`Generated on: ${new Date().toLocaleString()}`, 20, 30);
+        
+        // Add content with word wrapping
+        doc.setFontSize(12);
+        const splitText = doc.splitTextToSize(text, 170);
+        doc.text(splitText, 20, 40);
+        
+        // Save the PDF
+        doc.save(filename);
+    } catch (error) {
+        console.error('Error generating PDF:', error);
+        alert('Error generating PDF. Downloading as text instead.');
+        downloadAsText(text);
+    }
+}
+
+// Helper function to dynamically load scripts
+function loadScript(src) {
+    return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = src;
+        script.onload = resolve;
+        script.onerror = reject;
+        document.head.appendChild(script);
+    });
+}
+
 async function askQuestion() {
     const questionInput = document.getElementById('questionInput');
     const questionStatus = document.getElementById('questionStatus');
@@ -424,6 +517,12 @@ async function askQuestion() {
     questionStatus.textContent = "Getting an answer... 🧠";
     questionStatus.style.color = '#F59E0B';
     answerText.textContent = "";
+    
+    // Hide translation and download buttons while loading
+    const translationButtons = document.getElementById('translationButtons');
+    const downloadButtons = document.getElementById('downloadButtons');
+    if (translationButtons) translationButtons.style.display = 'none';
+    if (downloadButtons) downloadButtons.style.display = 'none';
 
     try {
         const response = await fetch(`${backendUrl}/ask`, {
@@ -438,9 +537,15 @@ async function askQuestion() {
         const data = await response.json();
 
         if (response.ok) {
-            answerText.textContent = data.answer;
+            // Store the original answer for translation and download
+            currentAnswer = data.answer;
+            answerText.textContent = currentAnswer;
             questionStatus.textContent = "Answer ready! 🎉";
             questionStatus.style.color = '#6EE7B7';
+
+            // Show translation and download buttons
+            if (translationButtons) translationButtons.style.display = 'flex';
+            if (downloadButtons) downloadButtons.style.display = 'flex';
 
             answerText.scrollIntoView({
                 behavior: 'smooth',
@@ -457,6 +562,91 @@ async function askQuestion() {
         questionStatus.textContent = `❌ Network error: ${error.message}`;
         questionStatus.style.color = '#EF4444';
     }
+}
+
+// Translation handler functions
+async function translateToHindi() {
+    const answerText = document.getElementById('answerText');
+    const questionStatus = document.getElementById('questionStatus');
+    
+    if (!currentAnswer) {
+        return;
+    }
+    
+    questionStatus.textContent = "Translating to Hindi... ⏳";
+    questionStatus.style.color = '#F59E0B';
+    
+    try {
+        const translatedText = await translateText(currentAnswer, 'hi');
+        answerText.textContent = translatedText;
+        questionStatus.textContent = "Translated to Hindi! 🎉";
+        questionStatus.style.color = '#6EE7B7';
+    } catch (error) {
+        console.error('Hindi translation error:', error);
+        questionStatus.textContent = `❌ Translation error: ${error.message}`;
+        questionStatus.style.color = '#EF4444';
+    }
+}
+
+async function translateToTelugu() {
+    const answerText = document.getElementById('answerText');
+    const questionStatus = document.getElementById('questionStatus');
+    
+    if (!currentAnswer) {
+        return;
+    }
+    
+    questionStatus.textContent = "Translating to Telugu... ⏳";
+    questionStatus.style.color = '#F59E0B';
+    
+    try {
+        const translatedText = await translateText(currentAnswer, 'te');
+        answerText.textContent = translatedText;
+        questionStatus.textContent = "Translated to Telugu! 🎉";
+        questionStatus.style.color = '#6EE7B7';
+    } catch (error) {
+        console.error('Telugu translation error:', error);
+        questionStatus.textContent = `❌ Translation error: ${error.message}`;
+        questionStatus.style.color = '#EF4444';
+    }
+}
+
+async function showOriginalText() {
+    const answerText = document.getElementById('answerText');
+    if (currentAnswer) {
+        answerText.textContent = currentAnswer;
+    }
+}
+
+// Download handler functions
+function downloadTextFile() {
+    if (!currentAnswer) {
+        alert('No response to download. Please ask a question first.');
+        return;
+    }
+    
+    const questionInput = document.getElementById('questionInput');
+    const question = questionInput.value.trim();
+    const filename = `docquery-${question.substring(0, 20).replace(/[^a-z0-9]/gi, '-').toLowerCase()}.txt`;
+    
+    // Format the content with question and answer
+    const content = `Question: ${question}\n\nAnswer: ${currentAnswer}`;
+    downloadAsText(content, filename);
+}
+
+async function downloadPDFFile() {
+    if (!currentAnswer) {
+        alert('No response to download. Please ask a question first.');
+        return;
+    }
+    
+    const questionInput = document.getElementById('questionInput');
+    const question = questionInput.value.trim();
+    const filename = `docquery-${question.substring(0, 20).replace(/[^a-z0-9]/gi, '-').toLowerCase()}.pdf`;
+    
+    // Format the content with question and answer
+    const content = `Question: ${question}\n\nAnswer: ${currentAnswer}`;
+    await downloadAsPDF(content, filename);
 }
 
 // --- Document Management Functions ---
