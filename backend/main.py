@@ -186,109 +186,147 @@ async def root(current_user: User = Depends(get_current_active_user)):
     return {"message": f"Welcome, {current_user.email}! Authentication successful."}
 
 
-# === Upload Report Endpoint ===
-@app.post("/upload", summary="Upload and index a PDF medical report", response_model=dict)
-async def upload_report(file: UploadFile = File(..., description="The PDF medical report to upload."),
-                        current_user: User = Depends(get_current_active_user)):
+# === Upload Multiple PDFs Endpoint ===
+@app.post("/upload", summary="Upload and index multiple PDF documents", response_model=dict)
+async def upload_documents(files: list[UploadFile] = File(..., description="PDF documents to upload."),
+                          current_user: User = Depends(get_current_active_user)):
     """
-    Uploads a PDF report, extracts its text, embeds chunks, and indexes them into Qdrant.
-    Old reports for the same user will be cleared before indexing new ones.
+    Uploads multiple PDF documents, extracts their text, embeds chunks, and indexes them into Qdrant.
+    Documents are added incrementally to the user's existing collection.
     Requires authentication.
     """
-    logger.info(f"User {current_user.email} attempting to upload report: {file.filename}")
+    if not files:
+        raise HTTPException(status_code=400, detail="🚫 No files provided.")
+    
+    if len(files) > 10:  # Limit to prevent abuse
+        raise HTTPException(status_code=400, detail="🚫 Maximum 10 files allowed per upload.")
+    
+    logger.info(f"User {current_user.email} attempting to upload {len(files)} documents")
 
-    if not file.filename.lower().endswith(".pdf"):
-        logger.warning(f"Upload failed for {current_user.email}: Invalid file type '{file.filename}'")
-        raise HTTPException(status_code=400, detail="🚫 Only PDF files are allowed.")
+    # Validate all files are PDFs
+    for file in files:
+        if not file.filename.lower().endswith(".pdf"):
+            logger.warning(f"Upload failed for {current_user.email}: Invalid file type '{file.filename}'")
+            raise HTTPException(status_code=400, detail=f"🚫 Only PDF files are allowed. Found: {file.filename}")
 
-    try:
-        # Read file content
-        file_content = await file.read()
-        doc = fitz.open(stream=file_content, filetype="pdf")
-        text = "\n".join(page.get_text() for page in doc)
-        if not text.strip():
-            logger.warning(f"Upload failed for {current_user.email} ({file.filename}): PDF contains no readable text.")
-            raise HTTPException(status_code=400, detail="🚫 PDF contains no readable text.")
-    except Exception as e:
-        logger.error(f"Error reading PDF for user {current_user.email} ({file.filename}): {e}", exc_info=True)
-        raise HTTPException(status_code=400, detail=f"❌ Error reading PDF: {e}")
+    all_points = []
+    successful_uploads = []
+    failed_uploads = []
 
-    # Simple chunking for demonstration (consider more advanced NLP-based chunking)
-    chunks = [text[i:i+500] for i in range(0, len(text), 500)]
-    if not chunks:
-        logger.warning(f"Upload failed for {current_user.email} ({file.filename}): No text chunks extracted.")
-        raise HTTPException(status_code=400, detail="🚫 No text chunks could be extracted from the PDF.")
+    for file in files:
+        try:
+            # Read file content
+            file_content = await file.read()
+            if len(file_content) > 50 * 1024 * 1024:  # 50MB limit per file
+                failed_uploads.append(f"{file.filename}: File too large (>50MB)")
+                continue
+                
+            doc = fitz.open(stream=file_content, filetype="pdf")
+            text = "\n".join(page.get_text() for page in doc)
+            doc.close()
+            
+            if not text.strip():
+                failed_uploads.append(f"{file.filename}: No readable text found")
+                continue
 
-    try:
-        vectors = embedder.encode(chunks).tolist()
-    except Exception as e:
-        logger.error(f"Error encoding text chunks for user {current_user.email} ({file.filename}): {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"❌ Error encoding text chunks: {e}")
+            # Improved chunking with overlap for better context preservation
+            chunk_size = 800  # Increased chunk size for better context
+            overlap = 100     # Overlap between chunks
+            chunks = []
+            
+            for i in range(0, len(text), chunk_size - overlap):
+                chunk = text[i:i + chunk_size]
+                if len(chunk.strip()) > 50:  # Only include substantial chunks
+                    chunks.append(chunk.strip())
+            
+            if not chunks:
+                failed_uploads.append(f"{file.filename}: No valid chunks extracted")
+                continue
 
-    # --- Clear old pdf data specific to 'report' source for this user ---
-    # This is crucial for user-specific data management.
-    try:
-        delete_result = qdrant.delete(
-            collection_name=collection_name,
-            points_selector=FilterSelector(
-                filter=Filter(
-                    must=[
-                        FieldCondition(key="source", match=MatchValue(value="report")),
-                        FieldCondition(key="user_id", match=MatchValue(value=str(current_user.id)))
-                    ]
-                )
-            ),
-            wait=True
-        )
-        if delete_result.status == 'completed':
-            logger.info(f"Old pdf data with source 'report' cleared for user {current_user.email} from Qdrant. Points deleted: {delete_result.result.points}")
-        else:
-            logger.warning(f"Qdrant delete status not completed for user {current_user.email}: {delete_result.status}. Points deleted: {delete_result.result.points}")
+            # Process chunks in batches to handle large documents
+            batch_size = 50  # Process 50 chunks at a time
+            for batch_start in range(0, len(chunks), batch_size):
+                batch_chunks = chunks[batch_start:batch_start + batch_size]
+                
+                try:
+                    vectors = embedder.encode(batch_chunks).tolist()
+                except Exception as e:
+                    logger.error(f"Error encoding chunks for {file.filename}: {e}", exc_info=True)
+                    failed_uploads.append(f"{file.filename}: Error processing chunks")
+                    break
 
-    except UnexpectedResponse as e:
-        # 404 indicates no collection or points, which is fine for a delete
-        if e.status_code == 404:
-            logger.info(f"No old report data for user {current_user.email} to clear (404 response).")
-        else:
-            logger.warning(f"Unexpected response during Qdrant delete for user {current_user.email}: {e}", exc_info=True)
-    except Exception as e:
-        logger.error(f"Error clearing old report data for user {current_user.email}: {e}", exc_info=True)
-        # Continue with upload even if old data couldn't be cleared, but log the error.
+                # Create points for this batch
+                for i, (vector, chunk) in enumerate(zip(vectors, batch_chunks)):
+                    chunk_index = batch_start + i
+                    # Create unique ID using file content hash for deduplication
+                    content_hash = str(hash(chunk[:200]))  # Use first 200 chars for hash
+                    point_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{current_user.id}-{file.filename}-{chunk_index}-{content_hash}"))
+                    
+                    all_points.append(
+                        PointStruct(
+                            id=point_id, 
+                            vector=vector, 
+                            payload={
+                                "text": chunk, 
+                                "source": "document", 
+                                "filename": file.filename, 
+                                "user_id": str(current_user.id),
+                                "chunk_index": chunk_index,
+                                "total_chunks": len(chunks),
+                                "upload_timestamp": str(uuid.uuid4().time_low)  # Simple timestamp
+                            }
+                        )
+                    )
+            
+            successful_uploads.append(f"{file.filename}: {len(chunks)} chunks")
+            logger.info(f"Successfully processed {file.filename} with {len(chunks)} chunks for user {current_user.email}")
 
-    report_points = []
-    for i, (v, c) in enumerate(zip(vectors, chunks)):
-        # Ensure unique IDs across all users and uploads by including user.id and filename
-        # Using uuid.uuid5 for consistent ID generation given the same inputs
-        point_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{current_user.id}-{file.filename}-{i}-{c[:100]}")) 
-        report_points.append(
-            PointStruct(id=point_id, vector=v, payload={"text": c, "source": "report", "filename": file.filename, "user_id": str(current_user.id)})
-        )
+        except Exception as e:
+            logger.error(f"Error processing {file.filename} for user {current_user.email}: {e}", exc_info=True)
+            failed_uploads.append(f"{file.filename}: Processing error - {str(e)[:100]}")
 
-    try:
-        # Batch upsert points
-        upsert_result = qdrant.upsert(collection_name=collection_name, points=report_points, wait=True)
-        if upsert_result.status == 'completed':
-            logger.info(f"Successfully indexed {len(report_points)} chunks for user {current_user.email} in Qdrant.")
-            return JSONResponse(status_code=200, content={"detail": "✅ Report uploaded and indexed successfully!"})
-        else:
-            # If upsert is not completed, it indicates an issue on Qdrant side
-            logger.error(f"Qdrant upsert status not completed for user {current_user.email}: {upsert_result.status}", exc_info=True)
-            raise HTTPException(status_code=500, detail=f"❌ Failed to index report: Qdrant upsert status: {upsert_result.status}")
+    # Batch insert all points to Qdrant
+    if all_points:
+        try:
+            # Process in batches of 100 points to avoid memory issues
+            batch_size = 100
+            total_inserted = 0
+            
+            for i in range(0, len(all_points), batch_size):
+                batch_points = all_points[i:i + batch_size]
+                upsert_result = qdrant.upsert(collection_name=collection_name, points=batch_points, wait=True)
+                
+                if upsert_result.status == 'completed':
+                    total_inserted += len(batch_points)
+                    logger.info(f"Successfully indexed batch {i//batch_size + 1} with {len(batch_points)} points for user {current_user.email}")
+                else:
+                    logger.error(f"Qdrant upsert status not completed for batch {i//batch_size + 1}: {upsert_result.status}")
+            
+            response_message = f"✅ Successfully uploaded {len(successful_uploads)} documents with {total_inserted} total chunks!"
+            if failed_uploads:
+                response_message += f"\n⚠️ Failed uploads: {', '.join(failed_uploads)}"
+            
+            return JSONResponse(status_code=200, content={"detail": response_message})
 
-    except Exception as e:
-        logger.error(f"Failed to index report for user {current_user.email}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, content={"detail": f"❌ Failed to index report: {e}"})
+        except Exception as e:
+            logger.error(f"Failed to index documents for user {current_user.email}: {e}", exc_info=True)
+            raise HTTPException(status_code=500, content={"detail": f"❌ Failed to index documents: {e}"})
+    else:
+        error_message = "❌ No documents could be processed successfully."
+        if failed_uploads:
+            error_message += f" Errors: {', '.join(failed_uploads)}"
+        raise HTTPException(status_code=400, detail=error_message)
 
 
 # === Ask Question Endpoint ===
 class QuestionRequest(BaseModel):
     question: str
 
-@app.post("/ask", summary="Ask a question about uploaded reports or general medical knowledge", response_model=dict)
+@app.post("/ask", summary="Ask a question about uploaded documents", response_model=dict)
 async def ask_question(data: QuestionRequest, current_user: User = Depends(get_current_active_user)):
     """
-    Asks a question and retrieves answers based on the authenticated user's indexed reports
-    and general medical knowledge. Requires authentication.
+    Asks a question and retrieves answers based on the authenticated user's indexed documents.
+    Searches across all uploaded PDFs for the user. Requires authentication.
     """
     logger.info(f"User {current_user.email} asked: '{data.question[:50]}...'")
 
@@ -302,55 +340,70 @@ async def ask_question(data: QuestionRequest, current_user: User = Depends(get_c
         logger.error(f"Error encoding question for user {current_user.email}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"❌ Error encoding question: {e}")
 
-    report_context = ""
+    document_context = ""
+    source_files = set()
+    
     try:
-        # Query for relevant chunks from the 'report' source, filtered by user_id
-        report_results = qdrant.query_points(
+        # Query for relevant chunks from all user documents
+        document_results = qdrant.query_points(
             collection_name=collection_name,
             query=q_vec,
-            limit=10, # Retrieve more chunks for reranking to get diverse candidates
+            limit=20, # Retrieve more chunks for better reranking across multiple documents
             with_payload=True,
             query_filter=Filter(
                 must=[
-                    FieldCondition(key="source", match=MatchValue(value="report")),
+                    FieldCondition(key="source", match=MatchValue(value="document")),
                     FieldCondition(key="user_id", match=MatchValue(value=str(current_user.id)))
                 ]
             )
         )
         
-        retrieved_chunks = [p.payload["text"] for p in report_results.points if p.payload and "text" in p.payload]
+        retrieved_chunks = []
+        for point in document_results.points:
+            if point.payload and "text" in point.payload:
+                retrieved_chunks.append(point.payload["text"])
+                if "filename" in point.payload:
+                    source_files.add(point.payload["filename"])
         
         if retrieved_chunks:
-            top_relevant_chunks = rerank_chunks(data.question, retrieved_chunks, top_k=3)
-            report_context = "\n".join(top_relevant_chunks)
-            logger.info(f"Generated report context with {len(top_relevant_chunks)} chunks for user {current_user.email}.")
+            # Rerank to get the most relevant chunks across all documents
+            top_relevant_chunks = rerank_chunks(data.question, retrieved_chunks, top_k=5)
+            document_context = "\n\n".join([f"[Chunk {i+1}]: {chunk}" for i, chunk in enumerate(top_relevant_chunks)])
+            
+            source_info = f"Sources: {', '.join(list(source_files)[:3])}"  # Show up to 3 source files
+            if len(source_files) > 3:
+                source_info += f" and {len(source_files) - 3} more"
+            
+            logger.info(f"Generated document context with {len(top_relevant_chunks)} chunks from {len(source_files)} files for user {current_user.email}.")
         else:
-            report_context = "No highly relevant information found in your patient report."
-            logger.info(f"No relevant chunks found in Qdrant for 'report' source for user {current_user.email}.")
+            document_context = "No relevant information found in your uploaded documents."
+            logger.info(f"No relevant chunks found in Qdrant for user {current_user.email}.")
 
     except Exception as e:
-        logger.error(f"Error querying report context from Qdrant for user {current_user.email}: {e}", exc_info=True)
-        report_context = "An error occurred while retrieving relevant information from your report. Providing general information."
+        logger.error(f"Error querying document context from Qdrant for user {current_user.email}: {e}", exc_info=True)
+        document_context = "An error occurred while retrieving relevant information from your documents."
 
-    # --- Prompt for Gemini ---
+    # --- Enhanced Prompt for Gemini ---
     prompt = f"""
-You are a helpful, knowledgeable, and empathetic AI health assistant designed to assist users in understanding their personal documents and answering general document related questions.
+You are a helpful, knowledgeable, and empathetic AI assistant designed to assist users in understanding their uploaded documents and answering questions about their content.
 
 --- User's Question ---
 {data.question}
 --- End of Question ---
 
---- Extracted Report Context ---
-{report_context}
---- End of Report Context ---
+--- Extracted Document Context ---
+{document_context}
+--- End of Document Context ---
 
 Instructions:
-1. Use the provided report context (if it contains relevant details) to answer the user's question as accurately and clearly as possible.
-2. Respond with clarity, empathy, and professionalism, making the explanation easy to understand for a non-medical user.
-3. Answer the users queries if it is only present in the document.
-4. Include a polite disclaimer at the end of your response:
+1. Use the provided document context to answer the user's question as accurately and clearly as possible.
+2. If the information is found across multiple documents, synthesize the information coherently.
+3. If specific information is mentioned in the context, cite which document or section it comes from when relevant.
+4. Respond with clarity, empathy, and professionalism, making the explanation easy to understand.
+5. If the question cannot be answered from the provided context, clearly state this limitation.
+6. Include a polite disclaimer at the end of your response:
 
-"**Disclaimer:** This information is for educational purposes only and is not a substitute for professional medical advice, diagnosis, or treatment. Please consult a licensed healthcare provider for personal medical concerns."
+"**Disclaimer:** This information is based on the content of your uploaded documents and is for educational purposes only. Please verify important information and consult appropriate professionals when needed."
 
 Return only the final response as if you are directly speaking to the user.
 """
@@ -366,3 +419,129 @@ Return only the final response as if you are directly speaking to the user.
     except Exception as e:
         logger.error(f"Gemini error for user {current_user.email}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"❌ Gemini error: {e}")
+
+
+# === Document Management Endpoints ===
+
+@app.get("/documents", summary="List user's uploaded documents", response_model=dict)
+async def list_documents(current_user: User = Depends(get_current_active_user)):
+    """
+    Lists all documents uploaded by the authenticated user with metadata.
+    """
+    try:
+        # Query all points for the user to get document metadata
+        all_results = qdrant.scroll(
+            collection_name=collection_name,
+            scroll_filter=Filter(
+                must=[
+                    FieldCondition(key="source", match=MatchValue(value="document")),
+                    FieldCondition(key="user_id", match=MatchValue(value=str(current_user.id)))
+                ]
+            ),
+            limit=1000,  # Adjust based on expected document count
+            with_payload=True
+        )
+        
+        documents = {}
+        for point in all_results[0]:  # all_results is a tuple (points, next_page_offset)
+            if point.payload and "filename" in point.payload:
+                filename = point.payload["filename"]
+                if filename not in documents:
+                    documents[filename] = {
+                        "filename": filename,
+                        "total_chunks": 0,
+                        "upload_timestamp": point.payload.get("upload_timestamp", "unknown")
+                    }
+                documents[filename]["total_chunks"] += 1
+        
+        document_list = list(documents.values())
+        logger.info(f"Retrieved {len(document_list)} documents for user {current_user.email}")
+        
+        return JSONResponse(status_code=200, content={
+            "documents": document_list,
+            "total_documents": len(document_list),
+            "total_chunks": sum(doc["total_chunks"] for doc in document_list)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error listing documents for user {current_user.email}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"❌ Error retrieving documents: {e}")
+
+
+@app.delete("/documents/{filename}", summary="Delete a specific document", response_model=dict)
+async def delete_document(filename: str, current_user: User = Depends(get_current_active_user)):
+    """
+    Deletes a specific document and all its chunks from the user's collection.
+    """
+    try:
+        # Delete all points for the specific document
+        delete_result = qdrant.delete(
+            collection_name=collection_name,
+            points_selector=FilterSelector(
+                filter=Filter(
+                    must=[
+                        FieldCondition(key="source", match=MatchValue(value="document")),
+                        FieldCondition(key="user_id", match=MatchValue(value=str(current_user.id))),
+                        FieldCondition(key="filename", match=MatchValue(value=filename))
+                    ]
+                )
+            ),
+            wait=True
+        )
+        
+        if delete_result.status == 'completed':
+            deleted_count = delete_result.result.points if hasattr(delete_result.result, 'points') else 0
+            logger.info(f"Successfully deleted document '{filename}' with {deleted_count} chunks for user {current_user.email}")
+            return JSONResponse(status_code=200, content={
+                "detail": f"✅ Document '{filename}' deleted successfully!",
+                "deleted_chunks": deleted_count
+            })
+        else:
+            logger.warning(f"Delete status not completed for document '{filename}': {delete_result.status}")
+            raise HTTPException(status_code=500, detail=f"❌ Failed to delete document: {delete_result.status}")
+            
+    except UnexpectedResponse as e:
+        if e.status_code == 404:
+            logger.info(f"Document '{filename}' not found for user {current_user.email}")
+            raise HTTPException(status_code=404, detail=f"🚫 Document '{filename}' not found.")
+        else:
+            logger.error(f"Unexpected response during document deletion: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"❌ Error deleting document: {e}")
+    except Exception as e:
+        logger.error(f"Error deleting document '{filename}' for user {current_user.email}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"❌ Error deleting document: {e}")
+
+
+@app.delete("/documents", summary="Delete all user documents", response_model=dict)
+async def delete_all_documents(current_user: User = Depends(get_current_active_user)):
+    """
+    Deletes all documents and chunks for the authenticated user.
+    """
+    try:
+        delete_result = qdrant.delete(
+            collection_name=collection_name,
+            points_selector=FilterSelector(
+                filter=Filter(
+                    must=[
+                        FieldCondition(key="source", match=MatchValue(value="document")),
+                        FieldCondition(key="user_id", match=MatchValue(value=str(current_user.id)))
+                    ]
+                )
+            ),
+            wait=True
+        )
+        
+        if delete_result.status == 'completed':
+            deleted_count = delete_result.result.points if hasattr(delete_result.result, 'points') else 0
+            logger.info(f"Successfully deleted all documents with {deleted_count} chunks for user {current_user.email}")
+            return JSONResponse(status_code=200, content={
+                "detail": "✅ All documents deleted successfully!",
+                "deleted_chunks": deleted_count
+            })
+        else:
+            logger.warning(f"Delete all status not completed for user {current_user.email}: {delete_result.status}")
+            raise HTTPException(status_code=500, detail=f"❌ Failed to delete documents: {delete_result.status}")
+            
+    except Exception as e:
+        logger.error(f"Error deleting all documents for user {current_user.email}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"❌ Error deleting documents: {e}")
