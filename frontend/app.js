@@ -123,21 +123,38 @@ document.addEventListener('DOMContentLoaded', () => {
     const uploadZone = document.getElementById('uploadZone');
     const browseBtn = document.getElementById('browseBtn');
 
+    // Multiple file upload elements
     const initialUploadState = uploadZone ? uploadZone.querySelector('.initial-state') : null;
-    const selectedFileDisplay = document.getElementById('fileDisplayNameInsideBox');
-    const fileNameText = selectedFileDisplay ? selectedFileDisplay.querySelector('.file-name-text') : null;
-    const clearFileButton = document.getElementById('clearFileButton');
+    const selectedFilesDisplay = document.getElementById('selectedFilesDisplay');
+    const filesCount = document.getElementById('filesCount');
+    const filesList = document.getElementById('filesList');
+    const clearAllButton = document.getElementById('clearAllButton');
+
+    // Document management elements
+    const refreshDocumentsButton = document.getElementById('refreshDocumentsButton');
+    const deleteAllDocumentsButton = document.getElementById('deleteAllDocumentsButton');
+    const documentsList = document.getElementById('documentsList');
+    const documentsStatus = document.getElementById('documentsStatus');
 
 
     if (uploadButton) {
         uploadButton.addEventListener('click', (event) => {
             event.preventDefault();
-            uploadReport();
+            uploadDocuments();
         });
     }
 
     if (askButton) {
         askButton.addEventListener('click', askQuestion);
+    }
+
+    // Document management event listeners
+    if (refreshDocumentsButton) {
+        refreshDocumentsButton.addEventListener('click', loadDocuments);
+    }
+
+    if (deleteAllDocumentsButton) {
+        deleteAllDocumentsButton.addEventListener('click', deleteAllDocuments);
     }
 
     if (fileInput && uploadZone) {
@@ -148,50 +165,128 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
         
-        const updateFileDisplay = (file) => {
-            if (file && fileNameText && initialUploadState && selectedFileDisplay) {
-                fileNameText.textContent = file.name;
-                initialUploadState.style.display = 'none';
-                selectedFileDisplay.style.display = 'flex';
-                uploadStatus.textContent = `Selected: ${file.name}`;
+        const updateFilesDisplay = (files) => {
+            if (files && files.length > 0) {
+                // Show selected files display
+                if (initialUploadState && selectedFilesDisplay) {
+                    initialUploadState.style.display = 'none';
+                    selectedFilesDisplay.style.display = 'block';
+                }
+                
+                // Update files count
+                if (filesCount) {
+                    filesCount.textContent = `${files.length} file${files.length > 1 ? 's' : ''} selected`;
+                }
+                
+                // Clear and populate files list
+                if (filesList) {
+                    filesList.innerHTML = '';
+                    Array.from(files).forEach((file, index) => {
+                        const fileItem = createFileItem(file, index);
+                        filesList.appendChild(fileItem);
+                    });
+                }
+                
+                uploadStatus.textContent = `Selected ${files.length} file${files.length > 1 ? 's' : ''}`;
                 uploadStatus.style.color = '#6EE7B7';
-            } else if (fileNameText && initialUploadState && selectedFileDisplay) {
-                fileNameText.textContent = "";
-                initialUploadState.style.display = 'flex';
-                selectedFileDisplay.style.display = 'none';
-                uploadStatus.textContent = "No file selected.";
+            } else {
+                // Show initial state
+                if (initialUploadState && selectedFilesDisplay) {
+                    initialUploadState.style.display = 'flex';
+                    selectedFilesDisplay.style.display = 'none';
+                }
+                uploadStatus.textContent = "No files selected.";
                 uploadStatus.style.color = 'inherit';
             }
         };
 
+        const createFileItem = (file, index) => {
+            const fileItem = document.createElement('div');
+            fileItem.className = 'file-item';
+            fileItem.innerHTML = `
+                <span class="file-icon">📄</span>
+                <div class="file-info">
+                    <div class="file-name">${file.name}</div>
+                    <div class="file-size">${formatFileSize(file.size)}</div>
+                </div>
+                <button class="remove-file-button" data-index="${index}">
+                    <i class="fas fa-times"></i>
+                </button>
+            `;
+            
+            // Add remove file functionality
+            const removeBtn = fileItem.querySelector('.remove-file-button');
+            removeBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                removeFile(index);
+            });
+            
+            return fileItem;
+        };
+
+        const removeFile = (index) => {
+            const dt = new DataTransfer();
+            const files = Array.from(fileInput.files);
+            files.splice(index, 1);
+            
+            files.forEach(file => dt.items.add(file));
+            fileInput.files = dt.files;
+            
+            updateFilesDisplay(fileInput.files);
+        };
+
+        const formatFileSize = (bytes) => {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        };
+
         fileInput.addEventListener('change', (event) => {
-            const file = event.target.files[0];
-            updateFileDisplay(file);
+            const files = event.target.files;
+            updateFilesDisplay(files);
         });
 
         uploadZone.addEventListener('dragover', (event) => {
             event.preventDefault();
             uploadZone.classList.add('drag-over');
         });
+        
         uploadZone.addEventListener('dragleave', () => {
             uploadZone.classList.remove('drag-over');
         });
+        
         uploadZone.addEventListener('drop', (event) => {
             event.preventDefault();
             uploadZone.classList.remove('drag-over');
             const files = event.dataTransfer.files;
             if (files.length > 0) {
-                fileInput.files = files;
-                updateFileDisplay(files[0]);
+                // Filter only PDF files
+                const pdfFiles = Array.from(files).filter(file => 
+                    file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
+                );
+                
+                if (pdfFiles.length !== files.length) {
+                    uploadStatus.textContent = `Only PDF files are allowed. ${pdfFiles.length} of ${files.length} files are valid.`;
+                    uploadStatus.style.color = '#F59E0B';
+                }
+                
+                if (pdfFiles.length > 0) {
+                    const dt = new DataTransfer();
+                    pdfFiles.forEach(file => dt.items.add(file));
+                    fileInput.files = dt.files;
+                    updateFilesDisplay(fileInput.files);
+                }
             }
         });
 
-        if (clearFileButton) {
-            clearFileButton.addEventListener('click', (e) => {
+        if (clearAllButton) {
+            clearAllButton.addEventListener('click', (e) => {
                 e.preventDefault();
                 fileInput.value = '';
-                updateFileDisplay(null);
-                uploadStatus.textContent = "File cleared. Please select another.";
+                updateFilesDisplay(null);
+                uploadStatus.textContent = "All files cleared.";
                 uploadStatus.style.color = '#F59E0B';
             });
         }
@@ -205,36 +300,47 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // --- API Calls ---
 
-async function uploadReport() {
+async function uploadDocuments() {
     const fileInput = document.getElementById('fileInput');
     const uploadStatus = document.getElementById('uploadStatus');
-    const file = fileInput.files[0];
+    const files = fileInput.files;
 
-    if (!file) {
-        uploadStatus.textContent = "🚫 Please select a PDF file first.";
+    if (!files || files.length === 0) {
+        uploadStatus.textContent = "🚫 Please select PDF files first.";
         uploadStatus.style.color = '#EF4444';
         return;
     }
 
-    if (file.size > 10 * 1024 * 1024) {
-        uploadStatus.textContent = "🚫 File size exceeds 10MB limit.";
+    if (files.length > 10) {
+        uploadStatus.textContent = "🚫 Maximum 10 files allowed per upload.";
         uploadStatus.style.color = '#EF4444';
         return;
+    }
+
+    // Check file sizes
+    for (let file of files) {
+        if (file.size > 50 * 1024 * 1024) { // 50MB limit
+            uploadStatus.textContent = `🚫 File "${file.name}" exceeds 50MB limit.`;
+            uploadStatus.style.color = '#EF4444';
+            return;
+        }
     }
 
     const token = getJwtToken();
     if (!token) {
         uploadStatus.textContent = "🚫 Not authenticated. Please log in.";
         uploadStatus.style.color = '#EF4444';
-        setTimeout(() => window.location.href = loginPage, 2000); // **UPDATED: Redirect to loginPage**
+        setTimeout(() => window.location.href = loginPage, 2000);
         return;
     }
 
-    uploadStatus.textContent = "Uploading and processing... ⏳";
+    uploadStatus.textContent = `Uploading and processing ${files.length} file${files.length > 1 ? 's' : ''}... ⏳`;
     uploadStatus.style.color = '#F59E0B';
 
     const formData = new FormData();
-    formData.append("file", file);
+    Array.from(files).forEach(file => {
+        formData.append("files", file);
+    });
 
     try {
         const response = await fetch(`${backendUrl}/upload`, {
@@ -250,14 +356,19 @@ async function uploadReport() {
         if (response.ok) {
             uploadStatus.textContent = data.detail;
             uploadStatus.style.color = '#6EE7B7';
+            
+            // Clear the file input and reset UI
             document.getElementById('fileInput').value = '';
             const uploadZone = document.getElementById('uploadZone');
             const initialUploadState = uploadZone ? uploadZone.querySelector('.initial-state') : null;
-            const selectedFileDisplay = document.getElementById('fileDisplayNameInsideBox');
-            if (initialUploadState && selectedFileDisplay) {
+            const selectedFilesDisplay = document.getElementById('selectedFilesDisplay');
+            if (initialUploadState && selectedFilesDisplay) {
                 initialUploadState.style.display = 'flex';
-                selectedFileDisplay.style.display = 'none';
+                selectedFilesDisplay.style.display = 'none';
             }
+            
+            // Refresh documents list
+            setTimeout(() => loadDocuments(), 1000);
         } else {
             uploadStatus.textContent = `❌ Upload failed: ${data.detail || 'Unknown error'}`;
             uploadStatus.style.color = '#EF4444';
@@ -324,5 +435,163 @@ async function askQuestion() {
         console.error('Error during question:', error);
         questionStatus.textContent = `❌ Network error: ${error.message}`;
         questionStatus.style.color = '#EF4444';
+    }
+}
+
+// --- Document Management Functions ---
+
+async function loadDocuments() {
+    const documentsList = document.getElementById('documentsList');
+    const documentsStatus = document.getElementById('documentsStatus');
+    
+    const token = getJwtToken();
+    if (!token) {
+        documentsStatus.textContent = "🚫 Not authenticated. Please log in.";
+        documentsStatus.style.color = '#EF4444';
+        return;
+    }
+
+    documentsStatus.textContent = "Loading documents... ⏳";
+    documentsStatus.style.color = '#F59E0B';
+
+    try {
+        const response = await fetch(`${backendUrl}/documents`, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            displayDocuments(data.documents);
+            documentsStatus.textContent = `✅ Loaded ${data.total_documents} document${data.total_documents !== 1 ? 's' : ''} (${data.total_chunks} chunks)`;
+            documentsStatus.style.color = '#6EE7B7';
+        } else {
+            documentsStatus.textContent = `❌ Failed to load documents: ${data.detail || 'Unknown error'}`;
+            documentsStatus.style.color = '#EF4444';
+        }
+    } catch (error) {
+        console.error('Error loading documents:', error);
+        documentsStatus.textContent = `❌ Network error: ${error.message}`;
+        documentsStatus.style.color = '#EF4444';
+    }
+}
+
+function displayDocuments(documents) {
+    const documentsList = document.getElementById('documentsList');
+    
+    if (!documents || documents.length === 0) {
+        documentsList.innerHTML = '<div class="loading-message">No documents uploaded yet. Upload some PDFs to get started!</div>';
+        return;
+    }
+
+    documentsList.innerHTML = '';
+    documents.forEach(doc => {
+        const documentItem = document.createElement('div');
+        documentItem.className = 'document-item';
+        documentItem.innerHTML = `
+            <div class="document-info">
+                <div class="document-name">${doc.filename}</div>
+                <div class="document-meta">${doc.total_chunks} chunks • Uploaded ${new Date(parseInt(doc.upload_timestamp)).toLocaleDateString()}</div>
+            </div>
+            <div class="document-actions">
+                <button class="btn btn-small btn-outline-danger" onclick="deleteDocument('${doc.filename}')">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="3,6 5,6 21,6"/>
+                        <path d="M19,6v14a2,2 0 0,1 -2,2H7a2,2 0 0,1 -2,-2V6m3,0V4a2,2 0 0,1 2,-2h4a2,2 0 0,1 2,2v2"/>
+                    </svg>
+                    Delete
+                </button>
+            </div>
+        `;
+        documentsList.appendChild(documentItem);
+    });
+}
+
+async function deleteDocument(filename) {
+    if (!confirm(`Are you sure you want to delete "${filename}"? This action cannot be undone.`)) {
+        return;
+    }
+
+    const documentsStatus = document.getElementById('documentsStatus');
+    const token = getJwtToken();
+    
+    if (!token) {
+        documentsStatus.textContent = "🚫 Not authenticated. Please log in.";
+        documentsStatus.style.color = '#EF4444';
+        return;
+    }
+
+    documentsStatus.textContent = `Deleting "${filename}"... ⏳`;
+    documentsStatus.style.color = '#F59E0B';
+
+    try {
+        const response = await fetch(`${backendUrl}/documents/${encodeURIComponent(filename)}`, {
+            method: 'DELETE',
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            documentsStatus.textContent = data.detail;
+            documentsStatus.style.color = '#6EE7B7';
+            // Refresh the documents list
+            setTimeout(() => loadDocuments(), 1000);
+        } else {
+            documentsStatus.textContent = `❌ Failed to delete document: ${data.detail || 'Unknown error'}`;
+            documentsStatus.style.color = '#EF4444';
+        }
+    } catch (error) {
+        console.error('Error deleting document:', error);
+        documentsStatus.textContent = `❌ Network error: ${error.message}`;
+        documentsStatus.style.color = '#EF4444';
+    }
+}
+
+async function deleteAllDocuments() {
+    if (!confirm('Are you sure you want to delete ALL documents? This action cannot be undone.')) {
+        return;
+    }
+
+    const documentsStatus = document.getElementById('documentsStatus');
+    const token = getJwtToken();
+    
+    if (!token) {
+        documentsStatus.textContent = "🚫 Not authenticated. Please log in.";
+        documentsStatus.style.color = '#EF4444';
+        return;
+    }
+
+    documentsStatus.textContent = "Deleting all documents... ⏳";
+    documentsStatus.style.color = '#F59E0B';
+
+    try {
+        const response = await fetch(`${backendUrl}/documents`, {
+            method: 'DELETE',
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            documentsStatus.textContent = data.detail;
+            documentsStatus.style.color = '#6EE7B7';
+            // Refresh the documents list
+            setTimeout(() => loadDocuments(), 1000);
+        } else {
+            documentsStatus.textContent = `❌ Failed to delete documents: ${data.detail || 'Unknown error'}`;
+            documentsStatus.style.color = '#EF4444';
+        }
+    } catch (error) {
+        console.error('Error deleting all documents:', error);
+        documentsStatus.textContent = `❌ Network error: ${error.message}`;
+        documentsStatus.style.color = '#EF4444';
     }
 }
