@@ -23,18 +23,76 @@ speechSynthesis.onvoiceschanged = () => {
 function getVoiceForLang(lang) {
     const voices = speechSynthesis.getVoices();
     const lc = (lang || '').toLowerCase();
-    // Exact match first
+    
+    // Debug: Log available voices for Telugu
+    if (lc.includes('te')) {
+        console.log('Available voices:', voices.map(v => ({ name: v.name, lang: v.lang })));
+        console.log('Looking for Telugu voice with lang:', lc);
+    }
+    
+    // 1. Exact match first (e.g., 'te-IN')
     let voice = voices.find(v => v.lang && v.lang.toLowerCase() === lc);
-    if (voice) return voice;
-    // Prefix match (e.g., 'hi' -> 'hi-IN')
+    if (voice) {
+        console.log('Found exact match:', voice.name, voice.lang);
+        return voice;
+    }
+    
+    // 2. Prefix match (e.g., 'te' -> 'te-IN')
     const prefix = lc.split('-')[0];
     voice = voices.find(v => v.lang && v.lang.toLowerCase().startsWith(prefix));
-    return voice || null;
+    if (voice) {
+        console.log('Found prefix match:', voice.name, voice.lang);
+        return voice;
+    }
+    
+    // 3. Search by voice name for Telugu
+    if (prefix === 'te') {
+        voice = voices.find(v => 
+            v.name && (
+                v.name.toLowerCase().includes('telugu') ||
+                v.name.toLowerCase().includes('తెలుగు') ||
+                v.name.toLowerCase().includes('google తెలుగు') ||
+                v.name.toLowerCase().includes('microsoft telugu')
+            )
+        );
+        if (voice) {
+            console.log('Found Telugu voice by name:', voice.name, voice.lang);
+            return voice;
+        }
+    }
+    
+    // 4. Search by voice name for Hindi
+    if (prefix === 'hi') {
+        voice = voices.find(v => 
+            v.name && (
+                v.name.toLowerCase().includes('hindi') ||
+                v.name.toLowerCase().includes('हिन्दी') ||
+                v.name.toLowerCase().includes('हिंदी') ||
+                v.name.toLowerCase().includes('google हिन्दी') ||
+                v.name.toLowerCase().includes('microsoft hindi')
+            )
+        );
+        if (voice) {
+            console.log('Found Hindi voice by name:', voice.name, voice.lang);
+            return voice;
+        }
+    }
+    
+    console.log('No suitable voice found for:', lang);
+    return null;
 }
 
 function speakText(text) {
     // Stop any ongoing speech
     stopSpeaking();
+    
+    // Ensure voices are loaded
+    const voices = speechSynthesis.getVoices();
+    if (voices.length === 0) {
+        // Wait for voices to load
+        setTimeout(() => speakText(text), 100);
+        return;
+    }
     
     // Create a new speech utterance
     const utterance = new SpeechSynthesisUtterance(text);
@@ -48,7 +106,29 @@ function speakText(text) {
     const voice = getVoiceForLang(utterance.lang);
     if (voice) {
         utterance.voice = voice;
+        console.log('Using voice:', voice.name, 'for language:', currentLanguage);
+    } else {
+        console.warn('No suitable voice found for language:', currentLanguage, 'using default');
+        // For Telugu, try setting a more generic language code
+        if (currentLanguage === 'te-IN') {
+            utterance.lang = 'te';
+        }
     }
+    
+    // Add error handling
+    utterance.onerror = function(event) {
+        console.error('Speech synthesis error:', event.error);
+        if (event.error === 'language-not-supported') {
+            console.log('Language not supported, trying with English voice but Telugu language code');
+            utterance.lang = currentLanguage;
+            utterance.voice = null; // Use default voice
+            speechSynthesis.speak(utterance);
+        }
+    };
+    
+    utterance.onstart = function() {
+        console.log('Started speaking in language:', utterance.lang, 'with voice:', utterance.voice ? utterance.voice.name : 'default');
+    };
     
     // Store the current speech
     currentSpeech = utterance;
