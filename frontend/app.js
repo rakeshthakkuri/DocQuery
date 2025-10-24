@@ -9,6 +9,58 @@ function getJwtToken() {
     return localStorage.getItem('jwt_token');
 }
 
+// Text-to-speech utility functions
+let speechSynthesis = window.speechSynthesis;
+let currentSpeech = null;
+
+function speakText(text) {
+    // Stop any ongoing speech
+    stopSpeaking();
+    
+    // Create a new speech utterance
+    const utterance = new SpeechSynthesisUtterance(text);
+    
+    // Set properties
+    utterance.lang = 'en-US';
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+    utterance.volume = 1.0;
+    
+    // Store the current speech
+    currentSpeech = utterance;
+    
+    // Start speaking
+    speechSynthesis.speak(utterance);
+    
+    return utterance;
+}
+
+function stopSpeaking() {
+    if (speechSynthesis) {
+        speechSynthesis.cancel();
+        currentSpeech = null;
+    }
+}
+
+function speakOriginalText() {
+    if (!currentAnswer) {
+        alert('No response to read. Please ask a question first.');
+        return;
+    }
+    
+    speakText(currentAnswer);
+}
+
+function speakTranslatedText() {
+    const answerText = document.getElementById('answerText');
+    if (!answerText.textContent) {
+        alert('No text to read. Please ask a question first.');
+        return;
+    }
+    
+    speakText(answerText.textContent);
+}
+
 function setJwtToken(token) {
     localStorage.setItem('jwt_token', token);
 }
@@ -514,11 +566,13 @@ async function askQuestion() {
     questionStatus.style.color = '#F59E0B';
     answerText.textContent = "";
     
-    // Hide translation and download buttons while loading
+    // Hide translation, download, and speak buttons while loading
     const translationButtons = document.getElementById('translationButtons');
     const downloadButtons = document.getElementById('downloadButtons');
+    const speakButtons = document.getElementById('speakButtons');
     if (translationButtons) translationButtons.style.display = 'none';
     if (downloadButtons) downloadButtons.style.display = 'none';
+    if (speakButtons) speakButtons.style.display = 'none';
 
     try {
         const response = await fetch(`${backendUrl}/ask`, {
@@ -539,9 +593,10 @@ async function askQuestion() {
             questionStatus.textContent = "Answer ready! 🎉";
             questionStatus.style.color = '#6EE7B7';
 
-            // Show translation and download buttons
+            // Show translation, download, and speak buttons
             if (translationButtons) translationButtons.style.display = 'flex';
             if (downloadButtons) downloadButtons.style.display = 'flex';
+            if (speakButtons) speakButtons.style.display = 'flex';
 
             answerText.scrollIntoView({
                 behavior: 'smooth',
