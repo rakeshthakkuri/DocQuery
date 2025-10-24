@@ -12,6 +12,25 @@ function getJwtToken() {
 // Text-to-speech utility functions
 let speechSynthesis = window.speechSynthesis;
 let currentSpeech = null;
+let currentLanguage = 'en-US';
+
+// Ensure voices are loaded
+speechSynthesis.getVoices();
+speechSynthesis.onvoiceschanged = () => {
+    // Voices list updated; no action needed here unless debugging
+};
+
+function getVoiceForLang(lang) {
+    const voices = speechSynthesis.getVoices();
+    const lc = (lang || '').toLowerCase();
+    // Exact match first
+    let voice = voices.find(v => v.lang && v.lang.toLowerCase() === lc);
+    if (voice) return voice;
+    // Prefix match (e.g., 'hi' -> 'hi-IN')
+    const prefix = lc.split('-')[0];
+    voice = voices.find(v => v.lang && v.lang.toLowerCase().startsWith(prefix));
+    return voice || null;
+}
 
 function speakText(text) {
     // Stop any ongoing speech
@@ -21,10 +40,15 @@ function speakText(text) {
     const utterance = new SpeechSynthesisUtterance(text);
     
     // Set properties
-    utterance.lang = 'en-US';
+    utterance.lang = currentLanguage;
     utterance.rate = 1.0;
     utterance.pitch = 1.0;
     utterance.volume = 1.0;
+
+    const voice = getVoiceForLang(utterance.lang);
+    if (voice) {
+        utterance.voice = voice;
+    }
     
     // Store the current speech
     currentSpeech = utterance;
@@ -47,7 +71,7 @@ function speakOriginalText() {
         alert('No response to read. Please ask a question first.');
         return;
     }
-    
+    currentLanguage = 'en-US';
     speakText(currentAnswer);
 }
 
@@ -57,7 +81,7 @@ function speakTranslatedText() {
         alert('No text to read. Please ask a question first.');
         return;
     }
-    
+    // Use whatever the current language is set to
     speakText(answerText.textContent);
 }
 
@@ -565,6 +589,7 @@ async function askQuestion() {
     questionStatus.textContent = "Getting an answer... 🧠";
     questionStatus.style.color = '#F59E0B';
     answerText.textContent = "";
+    currentLanguage = 'en-US';
     
     // Hide translation, download, and speak buttons while loading
     const translationButtons = document.getElementById('translationButtons');
@@ -590,6 +615,7 @@ async function askQuestion() {
             // Store the original answer for translation and download
             currentAnswer = data.answer;
             answerText.textContent = currentAnswer;
+            currentLanguage = 'en-US';
             questionStatus.textContent = "Answer ready! 🎉";
             questionStatus.style.color = '#6EE7B7';
 
@@ -630,6 +656,7 @@ async function translateToHindi() {
     try {
         const translatedText = await translateText(currentAnswer, 'hi');
         answerText.textContent = translatedText;
+        currentLanguage = 'hi-IN';
         questionStatus.textContent = "Translated to Hindi! 🎉";
         questionStatus.style.color = '#6EE7B7';
     } catch (error) {
@@ -653,6 +680,7 @@ async function translateToTelugu() {
     try {
         const translatedText = await translateText(currentAnswer, 'te');
         answerText.textContent = translatedText;
+        currentLanguage = 'te-IN';
         questionStatus.textContent = "Translated to Telugu! 🎉";
         questionStatus.style.color = '#6EE7B7';
     } catch (error) {
@@ -666,6 +694,7 @@ async function showOriginalText() {
     const answerText = document.getElementById('answerText');
     if (currentAnswer) {
         answerText.textContent = currentAnswer;
+        currentLanguage = 'en-US';
     }
 }
 
