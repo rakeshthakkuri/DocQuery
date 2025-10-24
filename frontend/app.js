@@ -9,162 +9,6 @@ function getJwtToken() {
     return localStorage.getItem('jwt_token');
 }
 
-// Text-to-speech utility functions
-let speechSynthesis = window.speechSynthesis;
-let currentSpeech = null;
-let currentLanguage = 'en-US';
-
-// Ensure voices are loaded
-speechSynthesis.getVoices();
-speechSynthesis.onvoiceschanged = () => {
-    // Voices list updated; no action needed here unless debugging
-};
-
-function getVoiceForLang(lang) {
-    const voices = speechSynthesis.getVoices();
-    const lc = (lang || '').toLowerCase();
-    
-    // Debug: Log available voices for Telugu
-    if (lc.includes('te')) {
-        console.log('Available voices:', voices.map(v => ({ name: v.name, lang: v.lang })));
-        console.log('Looking for Telugu voice with lang:', lc);
-    }
-    
-    // 1. Exact match first (e.g., 'te-IN')
-    let voice = voices.find(v => v.lang && v.lang.toLowerCase() === lc);
-    if (voice) {
-        console.log('Found exact match:', voice.name, voice.lang);
-        return voice;
-    }
-    
-    // 2. Prefix match (e.g., 'te' -> 'te-IN')
-    const prefix = lc.split('-')[0];
-    voice = voices.find(v => v.lang && v.lang.toLowerCase().startsWith(prefix));
-    if (voice) {
-        console.log('Found prefix match:', voice.name, voice.lang);
-        return voice;
-    }
-    
-    // 3. Search by voice name for Telugu
-    if (prefix === 'te') {
-        voice = voices.find(v => 
-            v.name && (
-                v.name.toLowerCase().includes('telugu') ||
-                v.name.toLowerCase().includes('తెలుగు') ||
-                v.name.toLowerCase().includes('google తెలుగు') ||
-                v.name.toLowerCase().includes('microsoft telugu')
-            )
-        );
-        if (voice) {
-            console.log('Found Telugu voice by name:', voice.name, voice.lang);
-            return voice;
-        }
-    }
-    
-    // 4. Search by voice name for Hindi
-    if (prefix === 'hi') {
-        voice = voices.find(v => 
-            v.name && (
-                v.name.toLowerCase().includes('hindi') ||
-                v.name.toLowerCase().includes('हिन्दी') ||
-                v.name.toLowerCase().includes('हिंदी') ||
-                v.name.toLowerCase().includes('google हिन्दी') ||
-                v.name.toLowerCase().includes('microsoft hindi')
-            )
-        );
-        if (voice) {
-            console.log('Found Hindi voice by name:', voice.name, voice.lang);
-            return voice;
-        }
-    }
-    
-    console.log('No suitable voice found for:', lang);
-    return null;
-}
-
-function speakText(text) {
-    // Stop any ongoing speech
-    stopSpeaking();
-    
-    // Ensure voices are loaded
-    const voices = speechSynthesis.getVoices();
-    if (voices.length === 0) {
-        // Wait for voices to load
-        setTimeout(() => speakText(text), 100);
-        return;
-    }
-    
-    // Create a new speech utterance
-    const utterance = new SpeechSynthesisUtterance(text);
-    
-    // Set properties
-    utterance.lang = currentLanguage;
-    utterance.rate = 1.0;
-    utterance.pitch = 1.0;
-    utterance.volume = 1.0;
-
-    const voice = getVoiceForLang(utterance.lang);
-    if (voice) {
-        utterance.voice = voice;
-        console.log('Using voice:', voice.name, 'for language:', currentLanguage);
-    } else {
-        console.warn('No suitable voice found for language:', currentLanguage, 'using default');
-        // For Telugu, try setting a more generic language code
-        if (currentLanguage === 'te-IN') {
-            utterance.lang = 'te';
-        }
-    }
-    
-    // Add error handling
-    utterance.onerror = function(event) {
-        console.error('Speech synthesis error:', event.error);
-        if (event.error === 'language-not-supported') {
-            console.log('Language not supported, trying with English voice but Telugu language code');
-            utterance.lang = currentLanguage;
-            utterance.voice = null; // Use default voice
-            speechSynthesis.speak(utterance);
-        }
-    };
-    
-    utterance.onstart = function() {
-        console.log('Started speaking in language:', utterance.lang, 'with voice:', utterance.voice ? utterance.voice.name : 'default');
-    };
-    
-    // Store the current speech
-    currentSpeech = utterance;
-    
-    // Start speaking
-    speechSynthesis.speak(utterance);
-    
-    return utterance;
-}
-
-function stopSpeaking() {
-    if (speechSynthesis) {
-        speechSynthesis.cancel();
-        currentSpeech = null;
-    }
-}
-
-function speakOriginalText() {
-    if (!currentAnswer) {
-        alert('No response to read. Please ask a question first.');
-        return;
-    }
-    currentLanguage = 'en-US';
-    speakText(currentAnswer);
-}
-
-function speakTranslatedText() {
-    const answerText = document.getElementById('answerText');
-    if (!answerText.textContent) {
-        alert('No text to read. Please ask a question first.');
-        return;
-    }
-    // Use whatever the current language is set to
-    speakText(answerText.textContent);
-}
-
 function setJwtToken(token) {
     localStorage.setItem('jwt_token', token);
 }
@@ -669,15 +513,12 @@ async function askQuestion() {
     questionStatus.textContent = "Getting an answer... 🧠";
     questionStatus.style.color = '#F59E0B';
     answerText.textContent = "";
-    currentLanguage = 'en-US';
     
-    // Hide translation, download, and speak buttons while loading
+    // Hide translation and download buttons while loading
     const translationButtons = document.getElementById('translationButtons');
     const downloadButtons = document.getElementById('downloadButtons');
-    const speakButtons = document.getElementById('speakButtons');
     if (translationButtons) translationButtons.style.display = 'none';
     if (downloadButtons) downloadButtons.style.display = 'none';
-    if (speakButtons) speakButtons.style.display = 'none';
 
     try {
         const response = await fetch(`${backendUrl}/ask`, {
@@ -695,13 +536,15 @@ async function askQuestion() {
             // Store the original answer for translation and download
             currentAnswer = data.answer;
             answerText.textContent = currentAnswer;
-            currentLanguage = 'en-US';
             questionStatus.textContent = "Answer ready! 🎉";
             questionStatus.style.color = '#6EE7B7';
 
-            // Show translation, download, and speak buttons
+            // Show translation, download, and speech buttons
             if (translationButtons) translationButtons.style.display = 'flex';
             if (downloadButtons) downloadButtons.style.display = 'flex';
+            
+            // Show speech buttons
+            const speakButtons = document.getElementById('speakButtons');
             if (speakButtons) speakButtons.style.display = 'flex';
 
             answerText.scrollIntoView({
@@ -736,7 +579,6 @@ async function translateToHindi() {
     try {
         const translatedText = await translateText(currentAnswer, 'hi');
         answerText.textContent = translatedText;
-        currentLanguage = 'hi-IN';
         questionStatus.textContent = "Translated to Hindi! 🎉";
         questionStatus.style.color = '#6EE7B7';
     } catch (error) {
@@ -760,7 +602,6 @@ async function translateToTelugu() {
     try {
         const translatedText = await translateText(currentAnswer, 'te');
         answerText.textContent = translatedText;
-        currentLanguage = 'te-IN';
         questionStatus.textContent = "Translated to Telugu! 🎉";
         questionStatus.style.color = '#6EE7B7';
     } catch (error) {
@@ -774,7 +615,6 @@ async function showOriginalText() {
     const answerText = document.getElementById('answerText');
     if (currentAnswer) {
         answerText.textContent = currentAnswer;
-        currentLanguage = 'en-US';
     }
 }
 
@@ -964,5 +804,104 @@ async function deleteAllDocuments() {
         console.error('Error deleting all documents:', error);
         documentsStatus.textContent = `❌ Network error: ${error.message}`;
         documentsStatus.style.color = '#EF4444';
+    }
+}
+
+// Text-to-speech functionality
+let speechSynthesisUtterance = null;
+
+function speakOriginalText() {
+    if (!currentAnswer) {
+        return;
+    }
+    
+    const questionStatus = document.getElementById('questionStatus');
+    questionStatus.textContent = "Speaking original text... 🔊";
+    questionStatus.style.color = '#F59E0B';
+    
+    try {
+        // Stop any ongoing speech
+        stopSpeaking();
+        
+        // Create a new utterance
+        speechSynthesisUtterance = new SpeechSynthesisUtterance(currentAnswer);
+        speechSynthesisUtterance.lang = 'en-US';
+        speechSynthesisUtterance.onend = () => {
+            questionStatus.textContent = "Speech completed! 🎉";
+            questionStatus.style.color = '#6EE7B7';
+        };
+        
+        // Start speaking
+        window.speechSynthesis.speak(speechSynthesisUtterance);
+        
+        // Show speak buttons
+        const speakButtons = document.getElementById('speakButtons');
+        if (speakButtons) speakButtons.style.display = 'flex';
+    } catch (error) {
+        console.error('Speech synthesis error:', error);
+        questionStatus.textContent = `❌ Speech error: ${error.message}`;
+        questionStatus.style.color = '#EF4444';
+    }
+}
+
+function speakTranslatedText() {
+    const answerText = document.getElementById('answerText');
+    const questionStatus = document.getElementById('questionStatus');
+    
+    if (!answerText.textContent) {
+        return;
+    }
+    
+    questionStatus.textContent = "Speaking translated text... 🔊";
+    questionStatus.style.color = '#F59E0B';
+    
+    try {
+        // Stop any ongoing speech
+        stopSpeaking();
+        
+        // Create a new utterance with the current text (which might be translated)
+        speechSynthesisUtterance = new SpeechSynthesisUtterance(answerText.textContent);
+        
+        // Detect if the text is Telugu and set the appropriate language code
+        if (answerText.textContent !== currentAnswer) {
+            // This is a translated text, check if it's Telugu
+            // Telugu characters typically fall in the Unicode range \u0C00-\u0C7F
+            const containsTeluguChars = /[\u0C00-\u0C7F]/.test(answerText.textContent);
+            if (containsTeluguChars) {
+                speechSynthesisUtterance.lang = 'te-IN'; // Telugu language code
+            } else {
+                // Default to Hindi if not Telugu but different from original
+                speechSynthesisUtterance.lang = 'hi-IN';
+            }
+        } else {
+            // Original text, use English
+            speechSynthesisUtterance.lang = 'en-US';
+        }
+        
+        speechSynthesisUtterance.onend = () => {
+            questionStatus.textContent = "Speech completed! 🎉";
+            questionStatus.style.color = '#6EE7B7';
+        };
+        
+        // Start speaking
+        window.speechSynthesis.speak(speechSynthesisUtterance);
+        
+        // Show speak buttons
+        const speakButtons = document.getElementById('speakButtons');
+        if (speakButtons) speakButtons.style.display = 'flex';
+    } catch (error) {
+        console.error('Speech synthesis error:', error);
+        questionStatus.textContent = `❌ Speech error: ${error.message}`;
+        questionStatus.style.color = '#EF4444';
+    }
+}
+
+function stopSpeaking() {
+    if (window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+    }
+    
+    if (speechSynthesisUtterance) {
+        speechSynthesisUtterance = null;
     }
 }
