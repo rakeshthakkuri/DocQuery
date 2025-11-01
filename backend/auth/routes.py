@@ -30,7 +30,16 @@ async def login(request: Request):
     Redirects the user to Google's authentication page.
     """
     redirect_uri = request.url_for('auth_callback')
-    return await oauth.google.authorize_redirect(request, redirect_uri)
+    
+    # Clear any existing session data to prevent state conflicts
+    if hasattr(request, 'session'):
+        request.session.clear()
+    
+    return await oauth.google.authorize_redirect(
+        request, 
+        redirect_uri,
+        state=None  # Let authlib generate a fresh state
+    )
 
 @router.get("/google/callback", name="auth_callback", summary="Google OAuth2 callback endpoint")
 async def auth_callback(request: Request, db: Session = Depends(get_db)):
@@ -41,6 +50,16 @@ async def auth_callback(request: Request, db: Session = Depends(get_db)):
     try:
         token = await oauth.google.authorize_access_token(request)
     except Exception as e:
+        error_msg = str(e)
+        print(f"OAuth callback error: {error_msg}")  # Debug logging
+        
+        # Handle specific CSRF state mismatch error
+        if "mismatching_state" in error_msg or "CSRF Warning" in error_msg:
+            # Redirect to login page with error message
+            frontend_redirect_url = os.getenv("FRONTEND_REDIRECT_URL", "https://docquerytest2.onrender.com/app.html")
+            error_redirect_url = f"{frontend_redirect_url}?error=csrf_state_mismatch"
+            return RedirectResponse(url=error_redirect_url)
+        
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Authentication failed during token exchange: {e}"

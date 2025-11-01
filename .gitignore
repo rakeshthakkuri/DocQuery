@@ -4,3 +4,5 @@ docvenv
 .env
 backend/__pycache__/
 __pycache__/
+info.txt
+.vscode
