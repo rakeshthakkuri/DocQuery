@@ -1,5 +1,6 @@
 // --- Configuration ---
-const backendUrl = "https://docquerytest.fly.dev"; 
+// Backend URL is loaded from config.js
+const backendUrl = typeof BACKEND_URL !== 'undefined' ? BACKEND_URL : "https://docquery.fly.dev"; 
 const loginPage = "index.html"; 
 const mainAppPage = "app.html";
 
@@ -66,7 +67,7 @@ function handleAuthCallback() {
             alert('Authentication session expired. Please try logging in again.');
             // Clear any existing tokens and redirect to login
             removeJwtToken();
-            window.location.href = 'https://docquerytest.fly.dev/auth/google/login';
+            window.location.href = `${backendUrl}/auth/google/login`;
             return;
         }
     }

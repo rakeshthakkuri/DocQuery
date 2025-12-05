@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 # CORS Middleware for frontend communication
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://docquery-rocs.onrender.com","https://docquerytest2.onrender.com"], 
+    allow_origins=["https://docquery-rocs.onrender.com","https://docquerytest2.onrender.com","http://127.0.0.1:8000"], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"]
@@ -88,7 +88,7 @@ qdrant_api_key = os.getenv("QDRANT_API_KEY")
 qdrant = QdrantClient(
     url=qdrant_url,
     api_key=qdrant_api_key,
-    timeout=60.0 
+    timeout=60 
 )
 
 # Print Qdrant client version for debugging
@@ -114,18 +114,20 @@ except UnexpectedResponse as e:
             qdrant.recreate_collection(
                 collection_name=collection_name,
                 vectors_config=VectorParams(size=vector_dim, distance=Distance.COSINE),
-                timeout=60.0 
+                timeout=60 
             )
             logger.info(f"Qdrant collection '{collection_name}' recreated successfully.")
         except Exception as recreate_e:
             logger.critical(f"Error recreating Qdrant collection: {recreate_e}", exc_info=True)
             raise RuntimeError(f"Error recreating Qdrant collection: {recreate_e}")
+    elif e.status_code == 503:
+        # Service Unavailable - Qdrant might be temporarily down, allow app to start
+        logger.warning(f"Qdrant service is temporarily unavailable (503). The app will start, but Qdrant operations may fail until the service is restored.")
     else:
-        logger.critical(f"Error checking Qdrant collection (UnexpectedResponse): {e}", exc_info=True)
-        raise RuntimeError(f"Error checking Qdrant collection (UnexpectedResponse): {e}")
+        logger.warning(f"Error checking Qdrant collection (UnexpectedResponse {e.status_code}): {e}. The app will start, but Qdrant operations may fail.")
 except Exception as e:
-    logger.critical(f"Error checking/creating Qdrant collection: {e}", exc_info=True)
-    raise RuntimeError(f"Error checking/creating Qdrant collection: {e}")
+    # For other exceptions, log but allow app to start
+    logger.warning(f"Error checking/creating Qdrant collection: {e}. The app will start, but Qdrant operations may fail.", exc_info=True)
 
 for field_name in ["source", "user_id", "filename"]:
     try:
