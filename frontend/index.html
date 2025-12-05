@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="style.css">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="config.js"></script>
 </head>
 <body class="bg-gray-900 text-white font-poppins flex items-center justify-center min-h-screen relative overflow-hidden">
     <div class="bg-orbs">
@@ -30,7 +31,7 @@
             <p class="text-lg text-gray-300 mb-8">
                 Your intelligent assistant for unlocking insights from your PDF documents. Get instant answers, summaries, and data extraction powered by cutting-edge AI.
             </p>
-            <a href="https://docquerytest.fly.dev/auth/google/login" class="btn btn-primary text-xl px-8 py-4 rounded-full shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:scale-105">
+            <a id="loginLink" href="#" class="btn btn-primary text-xl px-8 py-4 rounded-full shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:scale-105">
                 Get Started with Google
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="ml-2">
                     <path d="m5 12 7-7 7 7"/>
@@ -39,5 +40,14 @@
             </a>
         </div>
     </div>
+    <script>
+        // Set the login link dynamically from config
+        if (typeof BACKEND_URL !== 'undefined') {
+            document.getElementById('loginLink').href = BACKEND_URL + '/auth/google/login';
+        } else {
+            // Fallback if config.js is not loaded
+            document.getElementById('loginLink').href = 'https://docquery.fly.dev/auth/google/login';
+        }
+    </script>
 </body>
 </html>
