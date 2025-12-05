@@ -1,6 +1,19 @@
 // --- Configuration ---
-// Backend URL is loaded from config.js
-const backendUrl = typeof BACKEND_URL !== 'undefined' ? BACKEND_URL : "https://docquery.fly.dev"; 
+// Backend URL is loaded from meta tag or environment variable
+function getBackendUrl() {
+    // Try to get from meta tag first (set by server from .env)
+    const metaTag = document.querySelector('meta[name="BACKEND_URL"]');
+    if (metaTag) {
+        return metaTag.getAttribute('content');
+    }
+    // Try window.env (set by build process or server)
+    if (typeof window !== 'undefined' && window.env && window.env.BACKEND_URL) {
+        return window.env.BACKEND_URL;
+    }
+    // Fallback to default
+    return "https://docquery.fly.dev";
+}
+const backendUrl = getBackendUrl(); 
 const loginPage = "index.html"; 
 const mainAppPage = "app.html";
 

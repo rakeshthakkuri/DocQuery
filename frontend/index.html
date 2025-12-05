@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="style.css">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="config.js"></script>
+    <meta name="BACKEND_URL" content="https://docquery.fly.dev">
 </head>
 <body class="bg-gray-900 text-white font-poppins flex items-center justify-center min-h-screen relative overflow-hidden">
     <div class="bg-orbs">
@@ -41,13 +41,12 @@
         </div>
     </div>
     <script>
-        // Set the login link dynamically from config
-        if (typeof BACKEND_URL !== 'undefined') {
-            document.getElementById('loginLink').href = BACKEND_URL + '/auth/google/login';
-        } else {
-            // Fallback if config.js is not loaded
-            document.getElementById('loginLink').href = 'https://docquery.fly.dev/auth/google/login';
+        // Set the login link dynamically from meta tag or default
+        function getBackendUrl() {
+            const metaTag = document.querySelector('meta[name="BACKEND_URL"]');
+            return metaTag ? metaTag.getAttribute('content') : 'https://docquery.fly.dev';
         }
+        document.getElementById('loginLink').href = getBackendUrl() + '/auth/google/login';
     </script>
 </body>
 </html>
